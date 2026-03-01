@@ -1,12 +1,11 @@
 import React, { useState } from "react";
-import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
+import { addDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { calculatePersona, quizQuestions } from "../data/personaQuiz";
+import { quizQuestions } from "../data/personaQuiz";
+import { buildInitialStudentModel, buildSessionFromStudentRecord } from "../data/learningRadar";
 
-
-// Generates a simple unique student ID, e.g. "STU-1A2B3C4D"
 function generateStudentID() {
-  return "STU-" + Math.random().toString(36).toUpperCase().substring(2, 10);
+  return `STU-${Math.random().toString(36).toUpperCase().substring(2, 10)}`;
 }
 
 export default function AuthPage({ onBack, onComplete }) {
@@ -27,6 +26,7 @@ export default function AuthPage({ onBack, onComplete }) {
 
   function handleAnswerChange(questionId, value) {
     setAnswers((current) => ({ ...current, [questionId]: value }));
+    setError("");
   }
 
   async function handleSubmit(event) {
@@ -40,7 +40,7 @@ export default function AuthPage({ onBack, onComplete }) {
     }
 
     if (missingAnswers) {
-      setError("Complete all persona questions so BitBuddies can classify the student profile.");
+      setError("Complete all 10 onboarding questions so BitBuddies can set the initial radar.");
       return;
     }
 
@@ -48,7 +48,6 @@ export default function AuthPage({ onBack, onComplete }) {
     setError("");
 
     try {
-      // Check if email already registered
       const usersRef = collection(db, "students");
       const existingQuery = query(usersRef, where("email", "==", form.email.trim()));
       const existingSnapshot = await getDocs(existingQuery);
@@ -59,34 +58,41 @@ export default function AuthPage({ onBack, onComplete }) {
         return;
       }
 
-      const persona = calculatePersona(answers);
+      const now = Date.now();
       const studentID = generateStudentID();
-
-      // Build answers map: { q1: "answer", q2: "answer", ... }
-      const answersMap = {};
-      quizQuestions.forEach((question, index) => {
-        answersMap[`q${index + 1}`] = answers[question.id];
+      const onboardingAnswers = quizQuestions.reduce((result, question) => {
+        result[question.id] = answers[question.id];
+        return result;
+      }, {});
+      const initialStudent = buildInitialStudentModel({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        answers,
+        questions: quizQuestions,
+        timestamp: now,
       });
+      const answersMap = quizQuestions.reduce((result, question, index) => {
+        result[`q${index + 1}`] = answers[question.id];
+        return result;
+      }, {});
 
-      // Save to Firestore
-      await addDoc(usersRef, {
+      const studentRecord = {
         studentID,
         username: form.name.trim(),
         email: form.email.trim(),
-        password: form.password, // ⚠️ Plain text — switch to Firebase Auth for production
-        persona,
-        ...answersMap,           // q1, q2, q3, q4, q5
-        createdAt: new Date().toISOString(),
-      });
+        password: form.password,
+        onboardingAnswers,
+        persona: initialStudent.persona,
+        learningRadar: initialStudent.learningRadar,
+        ...answersMap,
+        createdAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+      };
 
-      onComplete({
-        studentID,
-        name: form.name.trim(),
-        email: form.email.trim(),
-        persona,
-      });
-    } catch (err) {
-      console.error("Registration error:", err);
+      const createdStudent = await addDoc(usersRef, studentRecord);
+      onComplete(buildSessionFromStudentRecord({ ...studentRecord, docId: createdStudent.id }));
+    } catch (submissionError) {
+      console.error("Registration error:", submissionError);
       setError("Something went wrong while saving your profile. Please try again.");
     } finally {
       setLoading(false);
@@ -111,7 +117,7 @@ export default function AuthPage({ onBack, onComplete }) {
       <section className="auth-layout">
         <div className="auth-panel">
           <p className="eyebrow">New Student</p>
-          <h1 className="auth-title">Create your profile and discover your study persona.</h1>
+          <h1 className="auth-title">Create your profile and set your first Learning Radar baseline.</h1>
 
           <form className="auth-form" onSubmit={handleSubmit}>
             <label className="input-group">
@@ -147,20 +153,16 @@ export default function AuthPage({ onBack, onComplete }) {
 
             {error ? <p className="form-error">{error}</p> : null}
 
-            <button
-              className="primary-button full-width"
-              type="submit"
-              disabled={loading}
-            >
-              {loading ? "Saving profile…" : "Register and continue"}
+            <button className="primary-button full-width" type="submit" disabled={loading}>
+              {loading ? "Saving profile..." : "Register and continue"}
             </button>
           </form>
         </div>
 
         <div className="quiz-panel">
           <div className="panel-header">
-            <p className="eyebrow">Persona Test</p>
-            <h2>Answer these hypothetical questions to assign a study persona.</h2>
+            <p className="eyebrow">Onboarding Quiz</p>
+            <h2>Answer 10 questions so BitBuddies can infer the initial persona and radar base scores.</h2>
           </div>
 
           <div className="quiz-list">

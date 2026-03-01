@@ -34,6 +34,10 @@ button {
   appearance: none;
 }
 
+button:disabled {
+  cursor: not-allowed;
+}
+
 input {
   color: #e8edf7;
 }
@@ -111,6 +115,7 @@ input {
 .auth-panel,
 .quiz-panel,
 .student-card,
+.current-state-card,
 .simulator-card,
 .radar-card {
   position: relative;
@@ -261,6 +266,7 @@ input {
 .auth-panel,
 .quiz-panel,
 .student-card,
+.current-state-card,
 .simulator-card,
 .radar-card {
   border: 1px solid rgba(147, 167, 196, 0.12);
@@ -465,6 +471,7 @@ input {
 .auth-panel,
 .quiz-panel,
 .student-card,
+.current-state-card,
 .simulator-card,
 .radar-card {
   padding: 28px;
@@ -573,6 +580,104 @@ input {
   color: #93a7c4;
   font-size: 0.78rem;
   margin-bottom: 8px;
+}
+
+.student-helper {
+  margin: 10px 0 0;
+  color: #aebdd4;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+.persona-scoreboard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.persona-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(147, 167, 196, 0.12);
+  border-radius: 999px;
+  background: rgba(14, 28, 48, 0.74);
+}
+
+.persona-chip span {
+  color: #aebdd4;
+  font-size: 0.86rem;
+}
+
+.persona-chip strong {
+  font-size: 0.9rem;
+}
+
+.current-state-card {
+  margin-top: 24px;
+}
+
+.current-state-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.current-state-stack {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.axis-explanations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.axis-card {
+  border: 1px solid rgba(147, 167, 196, 0.1);
+  border-radius: 22px;
+  background: rgba(14, 28, 48, 0.74);
+  padding: 20px;
+}
+
+.axis-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.axis-label {
+  margin: 0 0 6px;
+  color: #7ea6ff;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.axis-card h3 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.axis-summary {
+  margin: 14px 0 0;
+  color: #dbe5f6;
+  line-height: 1.6;
+}
+
+.axis-signal-list {
+  margin: 14px 0 0;
+  padding-left: 18px;
+  color: #aebdd4;
+  line-height: 1.6;
 }
 
 .topic-picker {
@@ -731,6 +836,28 @@ input {
   line-height: 1.6;
 }
 
+.todo-feedback {
+  margin: 18px 0 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(126, 166, 255, 0.18);
+  border-radius: 18px;
+  background: rgba(18, 32, 53, 0.8);
+  color: #dbe5f6;
+  line-height: 1.6;
+}
+
+.todo-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.todo-action-button {
+  min-height: 46px;
+  padding: 0 18px;
+}
+
 .todo-badge {
   display: inline-flex;
   margin-bottom: 10px;
@@ -753,6 +880,8 @@ input {
   .hero-card,
   .overview-strip,
   .auth-layout,
+  .current-state-grid,
+  .axis-explanations,
   .insight-grid,
   .radar-grid-wrap {
     grid-template-columns: 1fr;
@@ -805,6 +934,7 @@ input {
   .landing-hero,
   .hero-card,
   .student-card,
+  .current-state-card,
   .simulator-card,
   .radar-card,
   .auth-panel,
@@ -821,5 +951,10 @@ input {
   .topic-chip {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .todo-action-row .primary-button,
+  .todo-action-row .secondary-button {
+    width: 100%;
   }
 }

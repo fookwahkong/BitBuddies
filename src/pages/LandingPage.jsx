@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebaseConfig";
+import { buildSessionFromStudentRecord } from "../data/learningRadar";
 
 export default function LandingPage({ onStart, onLoginSuccess }) {
-  
   const [showLogin, setShowLogin] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -27,13 +27,12 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
     setError("");
 
     try {
-      // Query Firestore for a user with matching email
       const usersRef = collection(db, "students");
-      const q = query(usersRef, where("email", "==", form.email.trim()));
-      const snapshot = await getDocs(q);
+      const userQuery = query(usersRef, where("email", "==", form.email.trim()));
+      const snapshot = await getDocs(userQuery);
 
       if (snapshot.empty) {
-        setError("No account found with this email. Please register first.");
+        setError("No account was found with this email. Register first.");
         setLoading(false);
         return;
       }
@@ -41,22 +40,15 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
       const userDoc = snapshot.docs[0];
       const userData = userDoc.data();
 
-      // Check password (plain comparison — use Firebase Auth for production hashing)
       if (userData.password !== form.password) {
         setError("Incorrect password. Please try again.");
         setLoading(false);
         return;
       }
 
-      // Login success — pass user data up
-      onLoginSuccess({
-        studentID: userData.studentID,
-        name: userData.username,
-        email: userData.email,
-        persona: userData.persona,
-      });
-    } catch (err) {
-      console.error("Login error:", err?.code, err?.message);
+      onLoginSuccess(buildSessionFromStudentRecord({ ...userData, docId: userDoc.id }));
+    } catch (loginError) {
+      console.error("Login error:", loginError?.code, loginError?.message);
       setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
@@ -84,22 +76,18 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
             <div className="landing-copy">
               <p className="eyebrow">Landing Page</p>
               <p className="hero-kicker">BitBuddies</p>
-              <h1>Find the study pattern behind your results before you even log in.</h1>
+              <h1>Set a Learning Radar before enough activity exists to personalize it.</h1>
               <p className="hero-text">
-                BitBuddies turns revision behavior into a clear student persona, then uses that persona to
-                explain what to focus on next. This first screen introduces the product before the user enters
-                the login and quiz flow.
+                BitBuddies starts with an onboarding persona prior, then shifts toward behavior-based radar
+                scores once meaningful learning events accumulate. The experience stays explainable from day
+                one instead of showing blank analytics.
               </p>
               <div className="hero-actions">
                 <button className="primary-button" type="button" onClick={onStart}>
                   Start assessment
                 </button>
                 <div className="hero-proof">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => setShowLogin(true)}
-                  >
+                  <button className="secondary-button" type="button" onClick={() => setShowLogin(true)}>
                     Login
                   </button>
                 </div>
@@ -109,31 +97,31 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
             <div className="landing-panel">
               <div className="landing-stat">
                 <span className="stat-label">Step 1</span>
-                <strong>Discover your revision persona</strong>
+                <strong>Use 10 onboarding questions to classify the starting persona mix.</strong>
               </div>
               <div className="landing-stat">
                 <span className="stat-label">Step 2</span>
-                <strong>Log in with context instead of generic onboarding</strong>
+                <strong>Generate a cold-start radar using weighted persona base scores.</strong>
               </div>
               <div className="landing-stat">
                 <span className="stat-label">Step 3</span>
-                <strong>See a homepage that explains your next best move</strong>
+                <strong>Recompute only after meaningful activity so the radar stays stable.</strong>
               </div>
             </div>
           </section>
 
           <section className="overview-strip">
             <div className="overview-card">
-              <span className="overview-label">Why it exists</span>
-              <strong>Students often revise without knowing their actual behavioral pattern.</strong>
+              <span className="overview-label">Cold Start</span>
+              <strong>Every new student gets an explainable baseline from the onboarding answers.</strong>
             </div>
             <div className="overview-card">
-              <span className="overview-label">What changes</span>
-              <strong>The product makes learning strategy visible before showing recommendations.</strong>
+              <span className="overview-label">Personalization</span>
+              <strong>Behavior gradually overrides the prior as learning events accumulate.</strong>
             </div>
             <div className="overview-card">
-              <span className="overview-label">What comes next</span>
-              <strong>Login, complete a short persona test, then enter a personalized homepage.</strong>
+              <span className="overview-label">Stability</span>
+              <strong>Radar refreshes only after meaningful activity so scores do not swing daily.</strong>
             </div>
           </section>
         </>
@@ -141,7 +129,7 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
         <section className="auth-layout">
           <div className="auth-panel">
             <p className="eyebrow">Returning Student</p>
-            <h1 className="auth-title">Welcome back. Log in to continue your study journey.</h1>
+            <h1 className="auth-title">Welcome back. Log in to continue from your latest radar state.</h1>
 
             <form className="auth-form" onSubmit={handleLogin}>
               <label className="input-group">
@@ -167,17 +155,13 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
 
               {error ? <p className="form-error">{error}</p> : null}
 
-              <button
-                className="primary-button full-width"
-                type="submit"
-                disabled={loading}
-              >
-                {loading ? "Logging in…" : "Login"}
+              <button className="primary-button full-width" type="submit" disabled={loading}>
+                {loading ? "Logging in..." : "Login"}
               </button>
             </form>
 
-            <p style={{ marginTop: "1rem", fontSize: "0.875rem", color: "#666" }}>
-              Don't have an account?{" "}
+            <p style={{ marginTop: "1rem", fontSize: "0.875rem", color: "#aebdd4" }}>
+              Need an account?{" "}
               <button
                 type="button"
                 onClick={() => {
@@ -208,7 +192,7 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
               }}
               style={{ marginTop: "1rem" }}
             >
-              ← Back
+              Back
             </button>
           </div>
         </section>

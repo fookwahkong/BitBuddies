@@ -1,21 +1,21 @@
 import React from "react";
-import { metricLabels } from "../data/demoData";
+import { radarAxes } from "../data/learningRadar";
 
-export default function RadarChart({ title, metrics, tone }) {
+export default function RadarChart({ title, metrics, tone = "current" }) {
   const center = 150;
   const radius = 100;
   const levels = [20, 40, 60, 80, 100];
 
-  const axisPoints = metricLabels.map((metric, index) => {
-    const angle = ((Math.PI * 2) / metricLabels.length) * index - Math.PI / 2;
+  const axisPoints = radarAxes.map((axis, index) => {
+    const angle = ((Math.PI * 2) / radarAxes.length) * index - Math.PI / 2;
     const x = center + Math.cos(angle) * radius;
     const y = center + Math.sin(angle) * radius;
-    return { ...metric, angle, x, y };
+    return { ...axis, angle, x, y };
   });
 
   const polygonPoints = axisPoints
     .map((point) => {
-      const valueRadius = (metrics[point.key] / 100) * radius;
+      const valueRadius = ((metrics?.[point.key] || 0) / 100) * radius;
       const x = center + Math.cos(point.angle) * valueRadius;
       const y = center + Math.sin(point.angle) * valueRadius;
       return `${x},${y}`;
@@ -25,9 +25,10 @@ export default function RadarChart({ title, metrics, tone }) {
   return (
     <div className={`radar-card radar-card-${tone}`}>
       <div className="panel-header">
-        <p className="eyebrow">{tone === "current" ? "Current State" : "Projected State"}</p>
+        <p className="eyebrow">Current State</p>
         <h3>{title}</h3>
       </div>
+
       <svg viewBox="0 0 300 300" className="radar-svg" role="img" aria-label={title}>
         {levels.map((level) => {
           const levelPoints = axisPoints
@@ -56,7 +57,7 @@ export default function RadarChart({ title, metrics, tone }) {
         <polygon points={polygonPoints} className="radar-fill" />
 
         {axisPoints.map((point) => {
-          const valueRadius = (metrics[point.key] / 100) * radius;
+          const valueRadius = ((metrics?.[point.key] || 0) / 100) * radius;
           const x = center + Math.cos(point.angle) * valueRadius;
           const y = center + Math.sin(point.angle) * valueRadius;
 
@@ -82,11 +83,12 @@ export default function RadarChart({ title, metrics, tone }) {
           );
         })}
       </svg>
+
       <div className="metric-list">
-        {metricLabels.map((metric) => (
-          <div key={metric.key} className="metric-row">
-            <span>{metric.label}</span>
-            <strong>{metrics[metric.key]}</strong>
+        {radarAxes.map((axis) => (
+          <div key={axis.key} className="metric-row">
+            <span>{axis.label}</span>
+            <strong>{metrics?.[axis.key] || 0}</strong>
           </div>
         ))}
       </div>
