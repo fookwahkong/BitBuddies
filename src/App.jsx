@@ -3,6 +3,7 @@ import LandingPage from "./pages/LandingPage";
 import AuthPage from "./pages/AuthPage";
 import HomePage from "./pages/HomePage";
 import ToDoPage from "./pages/ToDoPage";
+import { recordLearningAction } from "./data/studentProgress";
 
 export default function App() {
   const [screen, setScreen] = useState("landing");
@@ -16,6 +17,16 @@ export default function App() {
   function handleSignOut() {
     setSession(null);
     setScreen("landing");
+  }
+
+  async function handleLearningAction(action) {
+    if (!session) {
+      return;
+    }
+
+    const updatedSession = await recordLearningAction(session, action);
+    setSession(updatedSession);
+    return updatedSession;
   }
 
   return (
@@ -48,6 +59,7 @@ export default function App() {
       {screen === "todo" && session ? (
         <ToDoPage
           user={session}
+          onLogLearningAction={handleLearningAction}
           onBackHome={() => setScreen("home")}
           onSignOut={handleSignOut}
         />

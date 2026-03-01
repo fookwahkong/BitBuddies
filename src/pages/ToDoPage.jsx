@@ -1112,8 +1112,8 @@ export default function ToDoPage({ user, onBackHome, onSignOut }) {
             <strong>{user?.persona?.label}</strong>
           </div>
           <div className="stat-card">
-            <span className="stat-label">Priority block</span>
-            <strong>Differentiation and Algebra</strong>
+            <span className="stat-label">Logged events</span>
+            <strong>{user.learningRadar?.meta?.totalEvents || 0}</strong>
           </div>
           <div className="stat-card stat-card-highlight">
             <span className="stat-label">Goal</span>
