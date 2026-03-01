@@ -28,6 +28,14 @@ select {
   font: inherit;
 }
 
+button {
+  color: inherit;
+}
+
+input {
+  color: #e8edf7;
+}
+
 #root {
   min-height: 100vh;
 }
@@ -37,6 +45,13 @@ select {
   min-height: 100vh;
   overflow: hidden;
   padding: 32px;
+}
+
+.screen-shell {
+  position: relative;
+  z-index: 1;
+  max-width: 1380px;
+  margin: 0 auto;
 }
 
 .background-glow {
@@ -65,7 +80,11 @@ select {
 .hero-card,
 .student-card,
 .simulator-card,
-.radar-card {
+.radar-card,
+.landing-hero,
+.overview-card,
+.auth-panel,
+.quiz-panel {
   position: relative;
   z-index: 1;
 }
@@ -76,7 +95,6 @@ select {
   justify-content: space-between;
   gap: 16px;
   margin: 0 auto 28px;
-  max-width: 1380px;
 }
 
 .brand-lockup {
@@ -126,37 +144,39 @@ select {
   cursor: default;
 }
 
-.page-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
-  gap: 24px;
-  max-width: 1380px;
-  margin: 0 auto;
+.status-pill-button {
+  cursor: pointer;
 }
 
+.landing-hero,
 .hero-card,
 .student-card,
 .simulator-card,
-.radar-card {
+.radar-card,
+.auth-panel,
+.quiz-panel {
   border: 1px solid rgba(147, 167, 196, 0.12);
   background: linear-gradient(180deg, rgba(11, 24, 43, 0.88), rgba(7, 16, 29, 0.94));
   border-radius: 28px;
   box-shadow: 0 24px 70px rgba(4, 11, 22, 0.35);
 }
 
+.landing-hero,
 .hero-card {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
   gap: 24px;
   padding: 32px;
 }
 
+.landing-copy h1,
 .hero-copy h1,
 .panel-header h2,
 .panel-header h3,
 .explain-card h3,
-.action-card h3 {
+.action-card h3,
+.auth-title,
+.quiz-card h3 {
   margin: 0;
 }
 
@@ -169,9 +189,11 @@ select {
   margin-bottom: 10px;
 }
 
-.hero-copy h1 {
-  max-width: 10ch;
-  font-size: clamp(2.5rem, 4vw, 4.4rem);
+.landing-copy h1,
+.hero-copy h1,
+.auth-title {
+  max-width: 11ch;
+  font-size: clamp(2.4rem, 4vw, 4.4rem);
   line-height: 0.98;
   letter-spacing: -0.04em;
 }
@@ -210,6 +232,10 @@ select {
   cursor: pointer;
 }
 
+.full-width {
+  width: 100%;
+}
+
 .hero-proof {
   display: flex;
   align-items: baseline;
@@ -230,21 +256,25 @@ select {
   line-height: 1.35;
 }
 
+.landing-panel,
 .hero-stats {
   display: grid;
   gap: 14px;
   align-content: start;
 }
 
+.landing-stat,
 .stat-card,
 .student-item,
 .explain-card,
-.action-card {
+.action-card,
+.quiz-card {
   border: 1px solid rgba(147, 167, 196, 0.1);
   border-radius: 22px;
   background: rgba(14, 28, 48, 0.74);
 }
 
+.landing-stat,
 .stat-card {
   padding: 18px;
 }
@@ -260,27 +290,21 @@ select {
   margin-bottom: 8px;
 }
 
+.landing-stat strong,
 .stat-card strong,
 .student-item strong {
   font-size: 1rem;
-  line-height: 1.45;
-}
-
-.student-card,
-.simulator-card {
-  padding: 28px;
+  line-height: 1.5;
 }
 
 .overview-strip {
   display: grid;
-  grid-column: 1 / -1;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  margin-top: 24px;
 }
 
 .overview-card {
-  position: relative;
-  z-index: 1;
   border: 1px solid rgba(147, 167, 196, 0.1);
   border-radius: 22px;
   padding: 20px;
@@ -303,10 +327,124 @@ select {
   line-height: 1.6;
 }
 
+.auth-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
+  gap: 24px;
+}
+
+.auth-panel,
+.quiz-panel,
+.student-card,
+.simulator-card,
+.radar-card {
+  padding: 28px;
+}
+
+.mode-switch {
+  display: inline-flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(14, 28, 48, 0.74);
+  border: 1px solid rgba(147, 167, 196, 0.1);
+}
+
+.mode-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: transparent;
+  color: #b9c7db;
+  cursor: pointer;
+}
+
+.mode-chip.active {
+  background: linear-gradient(135deg, rgba(41, 104, 255, 0.18), rgba(22, 181, 152, 0.14));
+  color: #f7fbff;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.input-group {
+  display: grid;
+  gap: 8px;
+}
+
+.input-group span {
+  color: #aebdd4;
+  font-size: 0.88rem;
+}
+
+.input-group input {
+  width: 100%;
+  border: 1px solid rgba(147, 167, 196, 0.14);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: rgba(14, 28, 48, 0.8);
+  outline: none;
+}
+
+.input-group input:focus {
+  border-color: rgba(126, 166, 255, 0.45);
+}
+
+.form-error {
+  margin: 0;
+  color: #ffb8b8;
+  font-size: 0.88rem;
+}
+
 .panel-header h2,
 .panel-header h3 {
   font-size: clamp(1.2rem, 1.7vw, 1.8rem);
   line-height: 1.15;
+}
+
+.quiz-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+  max-height: 72vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.quiz-step {
+  margin: 0 0 6px;
+  color: #7ea6ff;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.quiz-card {
+  padding: 18px;
+}
+
+.quiz-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.quiz-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(8, 18, 32, 0.45);
+}
+
+.quiz-option input {
+  margin-top: 4px;
 }
 
 .student-grid {
@@ -386,13 +524,9 @@ select {
 
 .radar-grid-wrap {
   display: grid;
-  grid-column: 1 / -1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
-}
-
-.radar-card {
-  padding: 28px;
+  margin-top: 24px;
 }
 
 .radar-card-current .eyebrow {
@@ -468,17 +602,30 @@ select {
   font-size: 0.95rem;
 }
 
+.student-card,
+.simulator-card {
+  margin-top: 24px;
+}
+
 @media (max-width: 1080px) {
-  .page-grid,
+  .landing-hero,
   .hero-card,
+  .overview-strip,
+  .auth-layout,
   .insight-grid,
-  .radar-grid-wrap,
-  .overview-strip {
+  .radar-grid-wrap {
     grid-template-columns: 1fr;
   }
 
-  .hero-copy h1 {
+  .landing-copy h1,
+  .hero-copy h1,
+  .auth-title {
     max-width: none;
+  }
+
+  .quiz-list {
+    max-height: none;
+    overflow: visible;
   }
 }
 
@@ -492,10 +639,13 @@ select {
     align-items: flex-start;
   }
 
+  .landing-hero,
   .hero-card,
   .student-card,
   .simulator-card,
-  .radar-card {
+  .radar-card,
+  .auth-panel,
+  .quiz-panel {
     padding: 22px;
     border-radius: 24px;
   }
@@ -505,8 +655,12 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .topic-chip {
+  .topic-chip,
+  .mode-switch {
     width: 100%;
-    text-align: left;
+  }
+
+  .mode-switch {
+    display: grid;
   }
 }
