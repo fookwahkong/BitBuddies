@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import LandingPage from "./pages/LandingPage";
 import AuthPage from "./pages/AuthPage";
 import HomePage from "./pages/HomePage";
+import ToDoPage from "./pages/ToDoPage";
 
 export default function App() {
   const [screen, setScreen] = useState("landing");
@@ -25,7 +26,7 @@ export default function App() {
       {screen === "landing" ? (
         <LandingPage
           onStart={() => setScreen("auth")}
-          onLoginSuccess={handleAuthComplete}  // ← was missing
+          onLoginSuccess={handleAuthComplete}
         />
       ) : null}
 
@@ -37,7 +38,19 @@ export default function App() {
       ) : null}
 
       {screen === "home" && session ? (
-        <HomePage user={session} onSignOut={handleSignOut} />
+        <HomePage
+          user={session}
+          onSignOut={handleSignOut}
+          onOpenToDo={() => setScreen("todo")}
+        />
+      ) : null}
+
+      {screen === "todo" && session ? (
+        <ToDoPage
+          user={session}
+          onBackHome={() => setScreen("home")}
+          onSignOut={handleSignOut}
+        />
       ) : null}
     </div>
   );

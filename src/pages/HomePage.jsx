@@ -1,26 +1,22 @@
 import React, { useState } from "react";
 import RadarChart from "../components/RadarChart";
+import TopNav from "../components/TopNav";
 import { buildProjectedState, currentState, focusOptions } from "../data/demoData";
 
-export default function HomePage({ onSignOut, user }) {
+export default function HomePage({ onSignOut, onOpenToDo, user }) {
   const [selectedTopicId, setSelectedTopicId] = useState(focusOptions[0].id);
   const selectedOption = focusOptions.find((option) => option.id === selectedTopicId) ?? focusOptions[0];
   const projectedState = buildProjectedState(selectedOption);
 
   return (
     <main className="screen-shell">
-      <header className="top-bar">
-        <div className="brand-lockup">
-          <div className="brand-mark">B</div>
-          <div>
-            <p className="brand-name">BitBuddies</p>
-            <p className="brand-tag">Student homepage</p>
-          </div>
-        </div>
-        <button className="status-pill status-pill-button" type="button" onClick={onSignOut}>
-          Sign out
-        </button>
-      </header>
+      <TopNav
+        user={user}
+        onOpenToDo={onOpenToDo}
+        onGoHome={() => {}}
+        onSignOut={onSignOut}
+        activePage="home"
+      />
 
       <section className="hero-card">
         <div className="hero-copy">
