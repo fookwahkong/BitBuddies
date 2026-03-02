@@ -1,6 +1,13 @@
 import React from "react";
 
-export default function TopNav({ user, onOpenToDo, onGoHome, onSignOut, activePage }) {
+export default function TopNav({
+  user,
+  onOpenPractice,
+  onOpenToDo,
+  onGoHome,
+  onSignOut,
+  activePage,
+}) {
   const profileLabel = user?.name ? user.name.charAt(0).toUpperCase() : "U";
 
   return (
@@ -13,6 +20,14 @@ export default function TopNav({ user, onOpenToDo, onGoHome, onSignOut, activePa
         >
           <span className="brand-mark small">B</span>
           <span>BitBuddies</span>
+        </button>
+
+        <button
+          className={`nav-pill ${activePage === "practice" ? "nav-pill-active" : ""}`}
+          type="button"
+          onClick={onOpenPractice}
+        >
+          Practice
         </button>
 
         <button

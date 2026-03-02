@@ -1,15 +1,8 @@
-import React, {
-  Component,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
-import {doc, getDoc, setDoc} from "firebase/firestore";
-import {db} from "../firebaseConfig.js"
-
-// ─── Data ────────────────────────────────────────────────────────────────────
+import { db } from "../firebaseConfig.js";
+import { chatStyles, styles } from "./toDoPageStyles.js";
 
 const metrics = [
   { key: "mastery", label: "Mastery" },
@@ -133,10 +126,6 @@ const DEFAULT_NODE_MAP = {
   },
 };
 
-const edges = Object.values(DEFAULT_NODE_MAP)
-  .filter((n) => n.parentId)
-  .map((n) => ({ id: `${n.parentId}-${n.id}`, from: n.parentId, to: n.id }));
-
 const DEFAULT_POSITIONS = {
   start: { x: 50, y: 14 },
   review: { x: 30, y: 42 },
@@ -147,58 +136,122 @@ const DEFAULT_POSITIONS = {
   drill: { x: 82, y: 74 },
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const STARTER_MESSAGES = [
+  {
+    role: "assistant",
+    content:
+      "Hi! I'm your study buddy. Ask me anything about your revision plan, or tell me how your last session went.",
+  },
+];
 
-function clamp(v, lo, hi) {
-  return Math.max(lo, Math.min(hi, v));
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
-function normalizePosition(pos, fallback) {
+function normalizePosition(position, fallback) {
   return {
-    x: clamp(pos?.x ?? fallback.x, 10, 90),
-    y: clamp(pos?.y ?? fallback.y, 10, 90),
+    x: clamp(position?.x ?? fallback.x, 10, 90),
+    y: clamp(position?.y ?? fallback.y, 10, 90),
   };
 }
 
 function normalizeNode(nodeMap, node) {
-  const fb = nodeMap?.start ?? DEFAULT_NODE_MAP.start;
-  const r = node && typeof node === "object" ? node : fb;
+  const fallback = nodeMap?.start ?? DEFAULT_NODE_MAP.start;
+  const rawNode = node && typeof node === "object" ? node : fallback;
+
   return {
-    ...fb,
-    ...r,
-    reason: Array.isArray(r.reason) ? r.reason : fb.reason,
-    impact: r.impact && typeof r.impact === "object" ? r.impact : fb.impact,
+    ...fallback,
+    ...rawNode,
+    reason: Array.isArray(rawNode.reason) ? rawNode.reason : fallback.reason,
+    impact:
+      rawNode.impact && typeof rawNode.impact === "object"
+        ? rawNode.impact
+        : fallback.impact,
   };
 }
 
 function getPathIds(nodeMap, targetId) {
   const path = new Set();
   let cursor = targetId;
+
   while (cursor && nodeMap?.[cursor]) {
     path.add(cursor);
     cursor = nodeMap[cursor].parentId;
   }
+
   return path;
 }
 
 function buildProjectedState(node) {
   const impact = node?.impact ?? {};
-  return metrics.reduce((acc, m) => {
-    acc[m.key] = clamp(currentState[m.key] + (impact[m.key] ?? 0), 0, 100);
+
+  return metrics.reduce((acc, metric) => {
+    acc[metric.key] = clamp(currentState[metric.key] + (impact[metric.key] ?? 0), 0, 100);
     return acc;
   }, {});
 }
 
+function getNodeDepth(nodeMap, node) {
+  if (Number.isFinite(node?.depth)) return node.depth;
+  if (!node?.parentId || !nodeMap?.[node.parentId]) return 0;
+  return getNodeDepth(nodeMap, nodeMap[node.parentId]) + 1;
+}
 
-// ─── Radar Chart ─────────────────────────────────────────────────────────────
+function getSiblingIds(nodeMap, parentId) {
+  return Object.values(nodeMap)
+    .filter((node) => node.parentId === parentId)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((node) => node.id);
+}
+
+function getAutoPosition(nodeMap, positionMap, node) {
+  if (!node?.parentId) return DEFAULT_POSITIONS.start;
+
+  const parentPosition =
+    positionMap[node.parentId] ??
+    DEFAULT_POSITIONS[node.parentId] ??
+    DEFAULT_POSITIONS.start;
+  const siblingIds = getSiblingIds(nodeMap, node.parentId);
+  const siblingIndex = Math.max(0, siblingIds.indexOf(node.id));
+  const siblingCount = Math.max(1, siblingIds.length);
+  const spread =
+    node.parentId === "start"
+      ? Math.min(52, 28 + (siblingCount - 1) * 10)
+      : Math.min(42, 20 + (siblingCount - 1) * 7);
+  const step = siblingCount === 1 ? 0 : spread / (siblingCount - 1);
+  const x =
+    siblingCount === 1
+      ? parentPosition.x
+      : parentPosition.x - spread / 2 + step * siblingIndex;
+  const depth = Math.max(1, getNodeDepth(nodeMap, node));
+  const y = clamp(Math.max(parentPosition.y + 24, 14 + depth * 22), 14, 84);
+
+  return { x, y };
+}
+
+function buildPositionMap(nodeMap, positions) {
+  const resolvedPositions = {};
+  const nodesByDepth = Object.values(nodeMap).sort((a, b) => {
+    const depthDiff = getNodeDepth(nodeMap, a) - getNodeDepth(nodeMap, b);
+    return depthDiff !== 0 ? depthDiff : a.id.localeCompare(b.id);
+  });
+
+  nodesByDepth.forEach((node) => {
+    const fallback =
+      DEFAULT_POSITIONS[node.id] ?? getAutoPosition(nodeMap, resolvedPositions, node);
+    resolvedPositions[node.id] = normalizePosition(positions?.[node.id], fallback);
+  });
+
+  return resolvedPositions;
+}
 
 function RadarChart({ values }) {
   const center = 96;
   const radius = 62;
   const rings = [20, 40, 60, 80, 100];
 
-  const points = metrics.map((metric, i) => {
-    const angle = ((Math.PI * 2) / metrics.length) * i - Math.PI / 2;
+  const points = metrics.map((metric, index) => {
+    const angle = ((Math.PI * 2) / metrics.length) * index - Math.PI / 2;
     return {
       ...metric,
       angle,
@@ -208,9 +261,11 @@ function RadarChart({ values }) {
   });
 
   const polygon = points
-    .map((p) => {
-      const vr = (values[p.key] / 100) * radius;
-      return `${center + Math.cos(p.angle) * vr},${center + Math.sin(p.angle) * vr}`;
+    .map((point) => {
+      const valueRadius = (values[point.key] / 100) * radius;
+      return `${center + Math.cos(point.angle) * valueRadius},${
+        center + Math.sin(point.angle) * valueRadius
+      }`;
     })
     .join(" ");
 
@@ -222,54 +277,60 @@ function RadarChart({ values }) {
       aria-label="Projected radar chart"
     >
       {rings.map((ring) => {
-        const rp = points
-          .map((p) => {
-            const rr = (ring / 100) * radius;
-            return `${center + Math.cos(p.angle) * rr},${center + Math.sin(p.angle) * rr}`;
+        const ringPoints = points
+          .map((point) => {
+            const ringRadius = (ring / 100) * radius;
+            return `${center + Math.cos(point.angle) * ringRadius},${
+              center + Math.sin(point.angle) * ringRadius
+            }`;
           })
           .join(" ");
+
         return (
           <polygon
             key={ring}
-            points={rp}
+            points={ringPoints}
             fill="none"
             stroke="rgba(255,255,255,0.08)"
             strokeWidth="0.8"
           />
         );
       })}
-      {points.map((p) => (
+
+      {points.map((point) => (
         <line
-          key={p.key}
+          key={point.key}
           x1={center}
           y1={center}
-          x2={p.x}
-          y2={p.y}
+          x2={point.x}
+          y2={point.y}
           stroke="rgba(255,255,255,0.1)"
           strokeWidth="0.8"
         />
       ))}
+
       <polygon
         points={polygon}
         fill="rgba(99,179,237,0.18)"
         stroke="#63b3ed"
         strokeWidth="1.5"
       />
-      {points.map((p) => {
-        const vr = (values[p.key] / 100) * radius;
-        const x = center + Math.cos(p.angle) * vr;
-        const y = center + Math.sin(p.angle) * vr;
-        return (
-          <circle key={p.key} cx={x} cy={y} r="3.5" fill="#63b3ed" />
-        );
+
+      {points.map((point) => {
+        const valueRadius = (values[point.key] / 100) * radius;
+        const x = center + Math.cos(point.angle) * valueRadius;
+        const y = center + Math.sin(point.angle) * valueRadius;
+        return <circle key={point.key} cx={x} cy={y} r="3.5" fill="#63b3ed" />;
       })}
-      {points.map((p) => {
-        const lr = radius + 17;
-        const x = center + Math.cos(p.angle) * lr;
-        const y = center + Math.sin(p.angle) * lr;
+
+      {points.map((point) => {
+        const labelRadius = radius + 17;
+        const x = center + Math.cos(point.angle) * labelRadius;
+        const y = center + Math.sin(point.angle) * labelRadius;
+
         return (
           <text
-            key={`${p.key}-label`}
+            key={`${point.key}-label`}
             x={x}
             y={y}
             textAnchor="middle"
@@ -278,7 +339,7 @@ function RadarChart({ values }) {
             fill="rgba(255,255,255,0.55)"
             fontFamily="inherit"
           >
-            {p.label}
+            {point.label}
           </text>
         );
       })}
@@ -286,10 +347,13 @@ function RadarChart({ values }) {
   );
 }
 
-// ─── Possible Worlds Map Section ─────────────────────────────────────────────
-
-function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
-  const [selectedId, setSelectedId] = useState("teach");
+function PossibleWorldsMap({
+  nodeMap,
+  positions,
+  selectedId,
+  setPositions,
+  setSelectedId,
+}) {
   const [drawerExpanded, setDrawerExpanded] = useState(false);
   const sceneRef = useRef(null);
   const dragRef = useRef(null);
@@ -297,60 +361,92 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
 
   const edges = useMemo(() => {
     return Object.values(nodeMap)
-      .filter((n) => n.parentId)
-      .map((n) => ({ id: `${n.parentId}-${n.id}`, from: n.parentId, to: n.id }));
+      .filter((node) => node.parentId)
+      .map((node) => ({
+        id: `${node.parentId}-${node.id}`,
+        from: node.parentId,
+        to: node.id,
+      }));
   }, [nodeMap]);
 
-  const safePositions = useMemo(() => {
-    return Object.keys(DEFAULT_POSITIONS).reduce((acc, key) => {
-      acc[key] = normalizePosition(positions[key], DEFAULT_POSITIONS[key]);
-      return acc;
-    }, {});
-  }, [positions]);
+  const safePositions = useMemo(() => buildPositionMap(nodeMap, positions), [nodeMap, positions]);
 
   const nodes = useMemo(() => {
     return Object.values(nodeMap).map((node) => ({
       ...normalizeNode(nodeMap, node),
       position: safePositions[node.id] ?? DEFAULT_POSITIONS.start,
     }));
-  }, [safePositions, nodeMap]);
+  }, [nodeMap, safePositions]);
 
-  const selectedNode = useMemo(
-    () => normalizeNode(nodeMap, nodeMap[selectedId]),
-    [selectedId, nodeMap]
-  );
-  const projectedState = useMemo(
-    () => buildProjectedState(selectedNode),
-    [selectedNode]
-  );
+  useEffect(() => {
+    if (!nodeMap[selectedId]) {
+      setSelectedId(nodeMap.teach ? "teach" : "start");
+    }
+  }, [nodeMap, selectedId, setSelectedId]);
+
+  useEffect(() => {
+    const missingIds = Object.keys(safePositions).filter((id) => !positions?.[id]);
+    if (!missingIds.length) return;
+
+    setPositions((current) => {
+      const next = { ...(current ?? {}) };
+      let changed = false;
+
+      missingIds.forEach((id) => {
+        if (!next[id] && safePositions[id]) {
+          next[id] = safePositions[id];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [positions, safePositions, setPositions]);
+
+  const selectedNode = useMemo(() => {
+    const fallbackId = nodeMap[selectedId] ? selectedId : nodeMap.teach ? "teach" : "start";
+    return normalizeNode(nodeMap, nodeMap[fallbackId]);
+  }, [nodeMap, selectedId]);
+
+  const projectedState = useMemo(() => buildProjectedState(selectedNode), [selectedNode]);
   const activePath = useMemo(
     () => getPathIds(nodeMap, selectedNode.id),
-    [selectedNode.id, nodeMap]
+    [nodeMap, selectedNode.id]
   );
 
   function playTone() {
     try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      if (!audioCtxRef.current) audioCtxRef.current = new AC();
-      const ctx = audioCtxRef.current;
-      if (ctx.state === "suspended") ctx.resume().catch(() => {});
-      const now = ctx.currentTime;
-      [268, 402].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, now);
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) return;
+
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioContextCtor();
+      }
+
+      const context = audioCtxRef.current;
+      if (context.state === "suspended") {
+        context.resume().catch(() => {});
+      }
+
+      const now = context.currentTime;
+
+      [268, 402].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, now);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.045, now + 0.02 + i * 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22 + i * 0.04);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + i * 0.03);
-        osc.stop(now + 0.26 + i * 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.045, now + 0.02 + index * 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22 + index * 0.04);
+
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(now + index * 0.03);
+        oscillator.stop(now + 0.26 + index * 0.04);
       });
-    } catch (e) {
-      /* silent */
+    } catch (error) {
+      // Ignore audio errors in unsupported browsers.
     }
   }
 
@@ -361,57 +457,68 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
   }
 
   useEffect(() => {
-    function onMove(e) {
+    function onMove(event) {
       if (!dragRef.current || !sceneRef.current) return;
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
+
+      const dragState = dragRef.current;
+      const dx = event.clientX - dragState.startX;
+      const dy = event.clientY - dragState.startY;
+
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        dragState.moved = true;
+      }
+
       const rect = sceneRef.current.getBoundingClientRect();
-      const nx = clamp(((e.clientX - rect.left) / rect.width) * 100, 10, 90);
-      const ny = clamp(((e.clientY - rect.top) / rect.height) * 100, 10, 90);
-      setPositions((cur) => {
-        const ds = dragRef.current;
-        if (!ds || !DEFAULT_POSITIONS[ds.id]) return cur;
-        return { ...cur, [ds.id]: { x: nx, y: ny } };
-      });
+      const nextX = clamp(((event.clientX - rect.left) / rect.width) * 100, 10, 90);
+      const nextY = clamp(((event.clientY - rect.top) / rect.height) * 100, 10, 90);
+
+      setPositions((current) => ({
+        ...(current ?? {}),
+        [dragState.id]: { x: nextX, y: nextY },
+      }));
     }
+
     function onUp() {
       if (!dragRef.current) return;
+
       const { id, moved } = dragRef.current;
       dragRef.current = null;
-      if (!moved) selectNode(id);
+
+      if (!moved) {
+        selectNode(id);
+      }
     }
-    function reset() {
+
+    function resetDrag() {
       dragRef.current = null;
     }
+
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-    window.addEventListener("blur", reset);
-    document.addEventListener("visibilitychange", reset);
+    window.addEventListener("blur", resetDrag);
+    document.addEventListener("visibilitychange", resetDrag);
+
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("blur", reset);
-      document.removeEventListener("visibilitychange", reset);
+      window.removeEventListener("blur", resetDrag);
+      document.removeEventListener("visibilitychange", resetDrag);
     };
-  }, []);
+  }, [setPositions]);
 
   return (
     <div style={styles.mapSection}>
-      {/* Header */}
       <div style={styles.mapHeader}>
         <span style={styles.eyebrow}>Interactive assignment map</span>
         <h2 style={styles.mapTitle}>Possible Worlds</h2>
         <p style={styles.mapSubtitle}>
-          Tap a bubble to select an assignment path. Drag any bubble (except the
-          anchor) to rearrange. The active branch lights up and the detail panel
-          updates below.
+          Tap a bubble to select an assignment path. Drag any bubble except the
+          anchor to rearrange. Student prompts can now add new branches or leaf
+          options without replacing the whole tree.
         </p>
       </div>
 
-      {/* Board */}
       <div style={styles.boardWrap} ref={sceneRef}>
-        {/* SVG branch lines */}
         <svg
           viewBox="0 0 100 100"
           style={styles.branchSvg}
@@ -422,8 +529,9 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
             const from = safePositions[edge.from];
             const to = safePositions[edge.to];
             if (!from || !to) return null;
-            const active =
-              activePath.has(edge.from) && activePath.has(edge.to);
+
+            const isActive = activePath.has(edge.from) && activePath.has(edge.to);
+
             return (
               <line
                 key={edge.id}
@@ -431,12 +539,10 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
                 y1={from.y}
                 x2={to.x}
                 y2={to.y}
-                stroke={active ? "#63b3ed" : "rgba(255,255,255,0.12)"}
-                strokeWidth={active ? "0.7" : "0.4"}
+                stroke={isActive ? "#63b3ed" : "rgba(255,255,255,0.12)"}
+                strokeWidth={isActive ? "0.7" : "0.4"}
                 style={{
-                  filter: active
-                    ? "drop-shadow(0 0 3px #63b3ed)"
-                    : undefined,
+                  filter: isActive ? "drop-shadow(0 0 3px #63b3ed)" : undefined,
                   transition: "stroke 0.3s, stroke-width 0.3s",
                 }}
               />
@@ -444,11 +550,11 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
           })}
         </svg>
 
-        {/* Nodes */}
         {nodes.map((node) => {
-          const isSelected = node.id === selectedId;
+          const isSelected = node.id === selectedNode.id;
           const isRoot = node.id === "start";
           const inPath = activePath.has(node.id);
+
           return (
             <button
               key={node.id}
@@ -471,20 +577,25 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
                   ? "0 0 18px rgba(99,179,237,0.45), 0 4px 16px rgba(0,0,0,0.4)"
                   : "0 2px 8px rgba(0,0,0,0.3)",
                 cursor: isRoot ? "default" : "grab",
-                transform: isSelected ? "translate(-50%,-50%) scale(1.06)" : "translate(-50%,-50%)",
+                transform: isSelected
+                  ? "translate(-50%,-50%) scale(1.06)"
+                  : "translate(-50%,-50%)",
               }}
-              onPointerDown={(e) => {
+              onPointerDown={(event) => {
                 if (isRoot) return;
-                e.currentTarget.setPointerCapture?.(e.pointerId);
+
+                event.currentTarget.setPointerCapture?.(event.pointerId);
                 dragRef.current = {
                   id: node.id,
-                  startX: e.clientX,
-                  startY: e.clientY,
+                  startX: event.clientX,
+                  startY: event.clientY,
                   moved: false,
                 };
               }}
               onClick={() => {
-                if (isRoot) selectNode(node.id);
+                if (isRoot) {
+                  selectNode(node.id);
+                }
               }}
             >
               <span style={styles.nodeTag}>{node.tag}</span>
@@ -493,14 +604,15 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
           );
         })}
 
-        {/* Choice Drawer */}
         <div
           style={{
             ...styles.drawer,
             ...(drawerExpanded ? styles.drawerExpanded : {}),
           }}
           onClick={() => {
-            if (!drawerExpanded) setDrawerExpanded(true);
+            if (!drawerExpanded) {
+              setDrawerExpanded(true);
+            }
           }}
         >
           <div style={styles.drawerHeader}>
@@ -511,272 +623,80 @@ function PossibleWorldsMap({nodeMap, setNodeMap, positions, setPositions}) {
             <button
               type="button"
               style={styles.drawerToggle}
-              onClick={(e) => {
-                e.stopPropagation();
-                setDrawerExpanded((v) => !v);
+              onClick={(event) => {
+                event.stopPropagation();
+                setDrawerExpanded((current) => !current);
               }}
             >
               {drawerExpanded ? "Minimize" : "Expand"}
             </button>
           </div>
 
-          <p style={styles.drawerAssignment}>{selectedNode.assignment}</p>
+          <div
+            style={{
+              ...styles.drawerBody,
+              ...(drawerExpanded ? styles.drawerBodyExpanded : {}),
+            }}
+          >
+            <p style={styles.drawerAssignment}>{selectedNode.assignment}</p>
 
-          <div style={styles.radarWrap}>
-            <RadarChart values={projectedState} />
-          </div>
-
-          <div style={styles.metricGrid}>
-            {metrics.map((m) => (
-              <div key={m.key} style={styles.metricCard}>
-                <span style={styles.metricLabel}>{m.label}</span>
-                <strong style={styles.metricValue}>
-                  {projectedState[m.key]}
-                </strong>
-              </div>
-            ))}
-          </div>
-
-          {drawerExpanded ? (
-            <div style={styles.expandedCopy}>
-              <div>
-                <h4 style={styles.expandedHeading}>Why this choice</h4>
-                <ul style={styles.expandedList}>
-                  {selectedNode.reason.map((item) => (
-                    <li key={item} style={styles.expandedItem}>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h4 style={styles.expandedHeading}>What changes</h4>
-                <p style={styles.expandedText}>
-                  This path shifts the learner from the current baseline into a
-                  new possible world with a stronger emphasis on{" "}
-                  {selectedNode.depth === 2
-                    ? "an actual assignment"
-                    : "a direction choice"}
-                  .
-                </p>
-              </div>
+            <div style={styles.radarWrap}>
+              <RadarChart values={projectedState} />
             </div>
-          ) : (
-            <p style={styles.drawerHint}>
-              Press this card to open the full explanation and radar details.
-            </p>
-          )}
+
+            <div style={styles.metricGrid}>
+              {metrics.map((metric) => (
+                <div key={metric.key} style={styles.metricCard}>
+                  <span style={styles.metricLabel}>{metric.label}</span>
+                  <strong style={styles.metricValue}>
+                    {projectedState[metric.key]}
+                  </strong>
+                </div>
+              ))}
+            </div>
+
+            {drawerExpanded ? (
+              <div style={styles.expandedCopy}>
+                <div>
+                  <h4 style={styles.expandedHeading}>Why this choice</h4>
+                  <ul style={styles.expandedList}>
+                    {selectedNode.reason.map((item) => (
+                      <li key={item} style={styles.expandedItem}>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h4 style={styles.expandedHeading}>What changes</h4>
+                  <p style={styles.expandedText}>
+                    This path shifts the learner from the current baseline into a
+                    new possible world with a stronger emphasis on{" "}
+                    {selectedNode.depth >= 2
+                      ? "a concrete assignment"
+                      : "a direction choice"}
+                    .
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p style={styles.drawerHint}>
+                Press this card to open the full explanation and radar details.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Inline Styles ────────────────────────────────────────────────────────────
-
-const styles = {
-  mapSection: {
-    marginTop: "2rem",
-    borderRadius: "1.25rem",
-    overflow: "hidden",
-    background: "linear-gradient(160deg,#0d1b2e 0%,#0a1628 60%,#0d2240 100%)",
-    border: "1px solid rgba(99,179,237,0.15)",
-    boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
-  },
-  mapHeader: {
-    padding: "1.75rem 2rem 0",
-  },
-  eyebrow: {
-    fontSize: "0.65rem",
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-    color: "#63b3ed",
-    fontWeight: 600,
-    display: "block",
-    marginBottom: "0.4rem",
-  },
-  mapTitle: {
-    margin: "0 0 0.5rem",
-    fontSize: "1.5rem",
-    fontWeight: 700,
-    color: "#fff",
-  },
-  mapSubtitle: {
-    margin: "0 0 1.25rem",
-    fontSize: "0.82rem",
-    color: "rgba(255,255,255,0.45)",
-    lineHeight: 1.55,
-  },
-  boardWrap: {
-    position: "relative",
-    width: "100%",
-    height: "420px",
-    overflow: "hidden",
-  },
-  branchSvg: {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-    pointerEvents: "none",
-  },
-  node: {
-    position: "absolute",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "0.2rem",
-    padding: "0.55rem 0.85rem",
-    borderRadius: "999px",
-    backdropFilter: "blur(6px)",
-    transition: "background 0.25s, border 0.25s, transform 0.2s, box-shadow 0.25s",
-    fontFamily: "inherit",
-    textAlign: "center",
-    minWidth: "90px",
-    maxWidth: "130px",
-  },
-  nodeTag: {
-    fontSize: "0.55rem",
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
-    color: "rgba(255,255,255,0.45)",
-    fontWeight: 600,
-  },
-  nodeLabel: {
-    fontSize: "0.7rem",
-    color: "#fff",
-    fontWeight: 600,
-    lineHeight: 1.3,
-  },
-  drawer: {
-    position: "absolute",
-    bottom: "1rem",
-    right: "1rem",
-    width: "240px",
-    background: "rgba(13,27,46,0.92)",
-    backdropFilter: "blur(12px)",
-    border: "1px solid rgba(99,179,237,0.2)",
-    borderRadius: "1rem",
-    padding: "1rem",
-    cursor: "pointer",
-    transition: "height 0.3s, width 0.3s",
-    overflow: "hidden",
-    boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
-  },
-  drawerExpanded: {
-    width: "300px",
-    cursor: "default",
-  },
-  drawerHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "0.5rem",
-    marginBottom: "0.5rem",
-  },
-  drawerTitle: {
-    margin: 0,
-    fontSize: "0.95rem",
-    fontWeight: 700,
-    color: "#fff",
-  },
-  drawerToggle: {
-    background: "rgba(99,179,237,0.15)",
-    border: "1px solid rgba(99,179,237,0.3)",
-    borderRadius: "6px",
-    color: "#63b3ed",
-    fontSize: "0.65rem",
-    fontWeight: 600,
-    padding: "0.25rem 0.5rem",
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-    letterSpacing: "0.05em",
-    fontFamily: "inherit",
-  },
-  drawerAssignment: {
-    fontSize: "0.72rem",
-    color: "rgba(255,255,255,0.6)",
-    lineHeight: 1.5,
-    margin: "0 0 0.75rem",
-  },
-  radarWrap: {
-    width: "100%",
-    height: "130px",
-    marginBottom: "0.75rem",
-  },
-  metricGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(5,1fr)",
-    gap: "0.3rem",
-    marginBottom: "0.5rem",
-  },
-  metricCard: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    background: "rgba(255,255,255,0.05)",
-    borderRadius: "6px",
-    padding: "0.3rem 0.2rem",
-  },
-  metricLabel: {
-    fontSize: "0.5rem",
-    color: "rgba(255,255,255,0.4)",
-    marginBottom: "0.15rem",
-    textAlign: "center",
-  },
-  metricValue: {
-    fontSize: "0.8rem",
-    color: "#63b3ed",
-    fontWeight: 700,
-  },
-  drawerHint: {
-    fontSize: "0.62rem",
-    color: "rgba(255,255,255,0.3)",
-    margin: 0,
-    textAlign: "center",
-  },
-  expandedCopy: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.75rem",
-    marginTop: "0.5rem",
-  },
-  expandedHeading: {
-    fontSize: "0.75rem",
-    fontWeight: 700,
-    color: "#fff",
-    margin: "0 0 0.35rem",
-    letterSpacing: "0.04em",
-  },
-  expandedList: {
-    margin: 0,
-    paddingLeft: "1.1rem",
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.3rem",
-  },
-  expandedItem: {
-    fontSize: "0.68rem",
-    color: "rgba(255,255,255,0.55)",
-    lineHeight: 1.5,
-  },
-  expandedText: {
-    fontSize: "0.68rem",
-    color: "rgba(255,255,255,0.55)",
-    lineHeight: 1.5,
-    margin: 0,
-  },
-};
-
-// ─── Student Prompt (Chatbot) ─────────────────────────────────────────────────
-
-const STARTER_MESSAGES = [
-  { role: "assistant", 
-    content: "Hi! I'm your study buddy. Ask me anything about your revision plan, or tell me how your last session went." },
-];
-
-function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
+function StudentPrompt({
+  user,
+  setNodeMapState,
+  setPositionsState,
+  setSelectedIdState,
+}) {
   const [messages, setMessages] = useState(STARTER_MESSAGES);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -790,16 +710,15 @@ function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
     const text = input.trim();
     if (!text || loading) return;
 
-    // always use { role, content }
-    const userMsg = { role: "user", content: text };
-    const nextMessages = [...messages, userMsg];
+    const userMessage = { role: "user", content: text };
+    const nextMessages = [...messages, userMessage];
 
     setMessages(nextMessages);
     setInput("");
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:3001/api/tree-chat", {
+      const response = await fetch("http://localhost:3001/api/tree-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -807,18 +726,22 @@ function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
           message: text,
         }),
       });
-    
-      const data = await res.json();
-    
-      if (!res.ok) throw new Error("Chat request failed");
-    
-      // Update tree state from backend
+
+      const data = await response.json();
+      if (!response.ok) throw new Error("Chat request failed");
+
       if (data.newTreeState) {
-        setNodeMapState(data.newTreeState.nodeMap);
-        setPositionsState(data.newTreeState.positions);
+        if (data.newTreeState.nodeMap) {
+          setNodeMapState(data.newTreeState.nodeMap);
+        }
+        if (data.newTreeState.positions) {
+          setPositionsState(data.newTreeState.positions);
+        }
+        if (data.newTreeState.selectedId) {
+          setSelectedIdState(data.newTreeState.selectedId);
+        }
       }
-    
-      // Add assistant reply
+
       setMessages([
         ...nextMessages,
         {
@@ -826,8 +749,7 @@ function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
           content: data.replyText,
         },
       ]);
-    
-    } catch (e) {
+    } catch (error) {
       setMessages([
         ...nextMessages,
         {
@@ -841,9 +763,9 @@ function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
     }
   }
 
-  function handleKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  function handleKeyDown(event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       handleSend();
     }
   }
@@ -854,21 +776,24 @@ function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
         <span style={chatStyles.eyebrow}>Student Prompt</span>
         <h2 style={chatStyles.title}>Ask your study buddy</h2>
         <p style={chatStyles.subtitle}>
-          Ask a question, describe what's confusing, or say how your last session went.
+          Ask a question, describe what is confusing, or say how your last
+          session went.
         </p>
       </div>
 
       <div style={chatStyles.feed}>
-        {messages.map((msg, i) => (
+        {messages.map((message, index) => (
           <div
-            key={i}
+            key={index}
             style={{
               ...chatStyles.bubble,
-              ...(msg.role === "user" ? chatStyles.bubbleUser : chatStyles.bubbleBot),
+              ...(message.role === "user"
+                ? chatStyles.bubbleUser
+                : chatStyles.bubbleBot),
             }}
           >
-            {msg.role === "assistant" && <span style={chatStyles.avatar}>B</span>}
-            <p style={chatStyles.bubbleText}>{msg.content}</p>
+            {message.role === "assistant" && <span style={chatStyles.avatar}>B</span>}
+            <p style={chatStyles.bubbleText}>{message.content}</p>
           </div>
         ))}
 
@@ -890,9 +815,9 @@ function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
         <textarea
           rows={1}
           style={chatStyles.textarea}
-          placeholder="Type your question…"
+          placeholder="Type your question..."
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
           disabled={loading}
         />
@@ -912,188 +837,56 @@ function StudentPrompt({ user, setNodeMapState, setPositionsState }) {
   );
 }
 
-const chatStyles = {
-  wrap: {
-    marginTop: "1.75rem",
-    borderRadius: "1.25rem",
-    background: "linear-gradient(160deg,#0d1b2e 0%,#0a1628 60%,#0d2240 100%)",
-    border: "1px solid rgba(99,179,237,0.15)",
-    boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-  },
-  header: {
-    padding: "1.5rem 1.75rem 0.75rem",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-  },
-  eyebrow: {
-    fontSize: "0.65rem",
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-    color: "#63b3ed",
-    fontWeight: 600,
-    display: "block",
-    marginBottom: "0.35rem",
-  },
-  title: {
-    margin: "0 0 0.3rem",
-    fontSize: "1.2rem",
-    fontWeight: 700,
-    color: "#fff",
-  },
-  subtitle: {
-    margin: 0,
-    fontSize: "0.78rem",
-    color: "rgba(255,255,255,0.4)",
-    lineHeight: 1.5,
-  },
-  feed: {
-    padding: "1rem 1.25rem",
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.7rem",
-    maxHeight: "260px",
-    overflowY: "auto",
-  },
-  bubble: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "0.55rem",
-    maxWidth: "80%",
-  },
-  bubbleBot: {
-    alignSelf: "flex-start",
-  },
-  bubbleUser: {
-    alignSelf: "flex-end",
-    flexDirection: "row-reverse",
-  },
-  avatar: {
-    flexShrink: 0,
-    width: "26px",
-    height: "26px",
-    borderRadius: "50%",
-    background: "linear-gradient(135deg,#2b6cb0,#63b3ed)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "0.65rem",
-    fontWeight: 700,
-    color: "#fff",
-    lineHeight: 1,
-    paddingTop: "1px",
-  },
-  bubbleText: {
-    margin: 0,
-    padding: "0.55rem 0.85rem",
-    borderRadius: "1rem",
-    fontSize: "0.8rem",
-    lineHeight: 1.55,
-    color: "rgba(255,255,255,0.88)",
-    background: "rgba(255,255,255,0.07)",
-    border: "1px solid rgba(255,255,255,0.08)",
-  },
-  typing: {
-    display: "flex",
-    alignItems: "center",
-    gap: "4px",
-    minHeight: "1.2rem",
-  },
-  dot: {
-    display: "inline-block",
-    width: "6px",
-    height: "6px",
-    borderRadius: "50%",
-    background: "#63b3ed",
-    animation: "blink 1.2s infinite ease-in-out",
-  },
-  inputRow: {
-    display: "flex",
-    gap: "0.6rem",
-    padding: "0.85rem 1.25rem 1.1rem",
-    borderTop: "1px solid rgba(255,255,255,0.06)",
-    alignItems: "flex-end",
-  },
-  textarea: {
-    flex: 1,
-    resize: "none",
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(99,179,237,0.2)",
-    borderRadius: "0.75rem",
-    color: "#fff",
-    fontSize: "0.82rem",
-    padding: "0.6rem 0.9rem",
-    fontFamily: "inherit",
-    lineHeight: 1.5,
-    outline: "none",
-    minHeight: "38px",
-  },
-  sendBtn: {
-    background: "linear-gradient(135deg,#2b6cb0,#63b3ed)",
-    border: "none",
-    borderRadius: "0.75rem",
-    color: "#fff",
-    fontWeight: 700,
-    fontSize: "0.78rem",
-    padding: "0.6rem 1.1rem",
-    cursor: "pointer",
-    fontFamily: "inherit",
-    letterSpacing: "0.04em",
-    transition: "opacity 0.2s",
-    whiteSpace: "nowrap",
-  },
-};
+export default function ToDoPage({ user, onBackHome }) {
+  const [nodeMapState, setNodeMapState] = useState(DEFAULT_NODE_MAP);
+  const [positionsState, setPositionsState] = useState(DEFAULT_POSITIONS);
+  const [selectedIdState, setSelectedIdState] = useState("teach");
 
-// ─── Main ToDo Page ───────────────────────────────────────────────────────────
-
-export default function ToDoPage({ user, onBackHome, onSignOut }) {
-  const[nodeMapState, setNodeMapState] = useState(DEFAULT_NODE_MAP);
-  const[positionsState, setPositionsState] = useState(DEFAULT_POSITIONS);
   useEffect(() => {
     async function loadTree() {
       if (!user?.uid) return;
-  
+
       const docRef = doc(db, "userTrees", user.uid);
-      const snap = await getDoc(docRef);
-  
-      if (snap.exists()) {
-        const data = snap.data();
+      const snapshot = await getDoc(docRef);
+
+      if (snapshot.exists()) {
+        const data = snapshot.data();
         if (data.nodeMap) setNodeMapState(data.nodeMap);
         if (data.positions) setPositionsState(data.positions);
-      } else {
-        // First time user → create default tree
-        await setDoc(docRef, {
-          nodeMap: DEFAULT_NODE_MAP,
-          positions: DEFAULT_POSITIONS,
-          selectedId: "teach",
-          updatedAt: Date.now(),
-        });
+        if (data.selectedId) setSelectedIdState(data.selectedId);
+        return;
       }
-    }
-  
-    loadTree();
-  }, [user?.uid]);
-  useEffect(() => {
-    async function saveTree() {
-      if (!user?.uid) return;
-  
-      const docRef = doc(db, "userTrees", user.uid);
-  
+
       await setDoc(docRef, {
-        nodeMap: nodeMapState,
-        positions: positionsState,
+        nodeMap: DEFAULT_NODE_MAP,
+        positions: DEFAULT_POSITIONS,
+        selectedId: "teach",
         updatedAt: Date.now(),
       });
     }
-  
+
+    loadTree();
+  }, [user?.uid]);
+
+  useEffect(() => {
+    async function saveTree() {
+      if (!user?.uid) return;
+
+      const docRef = doc(db, "userTrees", user.uid);
+
+      await setDoc(docRef, {
+        nodeMap: nodeMapState,
+        positions: positionsState,
+        selectedId: selectedIdState,
+        updatedAt: Date.now(),
+      });
+    }
+
     saveTree();
-  }, [nodeMapState, positionsState]);
+  }, [nodeMapState, positionsState, selectedIdState, user?.uid]);
+
   return (
     <main className="screen-shell">
-      {/* Keep original TopNav if available */}
-      {/* <TopNav user={user} onOpenToDo={() => {}} onGoHome={onBackHome} onSignOut={onSignOut} activePage="todo" /> */}
-
       <section className="hero-card">
         <div className="hero-copy">
           <p className="eyebrow">ToDo Page</p>
@@ -1125,22 +918,20 @@ export default function ToDoPage({ user, onBackHome, onSignOut }) {
       </section>
 
       <section className="student-card">
-        {/* ── Possible Worlds Map ─────────────────────────────────────── */}
-        <PossibleWorldsMap 
+        <PossibleWorldsMap
           nodeMap={nodeMapState}
-          setNodeMap={setNodeMapState}
           positions={positionsState}
+          selectedId={selectedIdState}
           setPositions={setPositionsState}
+          setSelectedId={setSelectedIdState}
         />
-        {/* ────────────────────────────────────────────────────────────── */}
 
-        {/* ── Student Prompt ──────────────────────────────────────────── */}
-        <StudentPrompt 
-        user={user} 
-        setNodeMapState={setNodeMapState}
-        setPositionsState={setPositionsState}
+        <StudentPrompt
+          user={user}
+          setNodeMapState={setNodeMapState}
+          setPositionsState={setPositionsState}
+          setSelectedIdState={setSelectedIdState}
         />
-        {/* ────────────────────────────────────────────────────────────── */}
 
         <button
           className="primary-button todo-back-button"

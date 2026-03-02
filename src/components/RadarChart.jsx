@@ -1,13 +1,21 @@
 import React from "react";
 import { radarAxes } from "../data/learningRadar";
 
-export default function RadarChart({ title, metrics, tone = "current" }) {
+export default function RadarChart({
+  title,
+  metrics,
+  tone = "current",
+  axes = radarAxes,
+  eyebrow = "Current State",
+}) {
   const center = 150;
   const radius = 100;
   const levels = [20, 40, 60, 80, 100];
 
-  const axisPoints = radarAxes.map((axis, index) => {
-    const angle = ((Math.PI * 2) / radarAxes.length) * index - Math.PI / 2;
+  const safeAxes = Array.isArray(axes) && axes.length ? axes : radarAxes;
+
+  const axisPoints = safeAxes.map((axis, index) => {
+    const angle = ((Math.PI * 2) / safeAxes.length) * index - Math.PI / 2;
     const x = center + Math.cos(angle) * radius;
     const y = center + Math.sin(angle) * radius;
     return { ...axis, angle, x, y };
@@ -25,7 +33,7 @@ export default function RadarChart({ title, metrics, tone = "current" }) {
   return (
     <div className={`radar-card radar-card-${tone}`}>
       <div className="panel-header">
-        <p className="eyebrow">Current State</p>
+        <p className="eyebrow">{eyebrow}</p>
         <h3>{title}</h3>
       </div>
 
@@ -85,7 +93,7 @@ export default function RadarChart({ title, metrics, tone = "current" }) {
       </svg>
 
       <div className="metric-list">
-        {radarAxes.map((axis) => (
+        {safeAxes.map((axis) => (
           <div key={axis.key} className="metric-row">
             <span>{axis.label}</span>
             <strong>{metrics?.[axis.key] || 0}</strong>

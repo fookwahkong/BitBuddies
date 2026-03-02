@@ -512,6 +512,14 @@ input {
   font-size: 0.88rem;
 }
 
+.panel-header-spread {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .panel-header h2,
 .panel-header h3 {
   font-size: clamp(1.2rem, 1.7vw, 1.8rem);
@@ -557,6 +565,220 @@ input {
 
 .quiz-option input {
   margin-top: 4px;
+}
+
+.wizard-steps {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.wizard-step,
+.subject-config-card {
+  border: 1px solid rgba(147, 167, 196, 0.1);
+  border-radius: 20px;
+  background: rgba(14, 28, 48, 0.74);
+}
+
+.wizard-step {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.wizard-step strong,
+.wizard-step p {
+  margin: 0;
+}
+
+.wizard-step p {
+  margin-top: 4px;
+  color: #aebdd4;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.wizard-step-index {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #dce7fa;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.wizard-step-active {
+  border-color: rgba(126, 166, 255, 0.4);
+  background: linear-gradient(145deg, rgba(41, 104, 255, 0.14), rgba(22, 181, 152, 0.1));
+}
+
+.wizard-step-complete .wizard-step-index {
+  background: linear-gradient(135deg, #2968ff, #16b598);
+  color: #f7fbff;
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.wizard-actions-spread {
+  justify-content: space-between;
+}
+
+.input-group select,
+.input-group input[type="file"] {
+  width: 100%;
+  border: 1px solid rgba(147, 167, 196, 0.14);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: rgba(14, 28, 48, 0.8);
+  color: #e8edf7;
+  outline: none;
+}
+
+.input-group select:focus,
+.input-group input[type="file"]:focus {
+  border-color: rgba(126, 166, 255, 0.45);
+}
+
+.selection-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.selection-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(147, 167, 196, 0.14);
+  background: rgba(14, 28, 48, 0.8);
+  color: #d9e1ee;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    background 0.2s ease;
+}
+
+.selection-chip:hover,
+.selection-chip:focus-visible {
+  border-color: rgba(126, 166, 255, 0.4);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.selection-chip-active {
+  background: linear-gradient(135deg, rgba(41, 104, 255, 0.18), rgba(22, 181, 152, 0.14));
+  border-color: rgba(126, 166, 255, 0.4);
+}
+
+.subject-config-list {
+  display: grid;
+  gap: 14px;
+}
+
+.subject-config-card {
+  padding: 18px;
+}
+
+.inline-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #aebdd4;
+  font-size: 0.9rem;
+}
+
+.practice-stage-card {
+  margin-top: 24px;
+  padding: 28px;
+  border: 1px solid rgba(147, 167, 196, 0.12);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(11, 24, 43, 0.88), rgba(7, 16, 29, 0.94));
+  box-shadow: 0 24px 70px rgba(4, 11, 22, 0.35);
+}
+
+.practice-upload-stage {
+  min-height: 62vh;
+  display: grid;
+  place-items: center;
+}
+
+.practice-stage-shell {
+  width: min(100%, 620px);
+  text-align: center;
+}
+
+.practice-stage-copy,
+.practice-status-text {
+  max-width: none;
+}
+
+.practice-upload-dropzone {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  margin-top: 28px;
+  min-height: 240px;
+  padding: 28px;
+  border: 1px dashed rgba(126, 166, 255, 0.35);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(41, 104, 255, 0.12), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(22, 181, 152, 0.1), transparent 36%),
+    rgba(9, 18, 33, 0.58);
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    background 0.2s ease;
+}
+
+.practice-upload-dropzone:hover,
+.practice-upload-dropzone:focus-visible {
+  border-color: rgba(126, 166, 255, 0.52);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.practice-upload-label {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f3f7ff;
+}
+
+.practice-upload-helper {
+  color: #aebdd4;
+  font-size: 0.92rem;
+}
+
+.practice-upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .student-card,
@@ -883,7 +1105,8 @@ input {
   .current-state-grid,
   .axis-explanations,
   .insight-grid,
-  .radar-grid-wrap {
+  .radar-grid-wrap,
+  .inline-field-row {
     grid-template-columns: 1fr;
   }
 
@@ -923,7 +1146,10 @@ input {
   .nav-pill,
   .secondary-button,
   .status-pill,
-  .profile-pill {
+  .profile-pill,
+  .selection-chip,
+  .wizard-actions .primary-button,
+  .wizard-actions .secondary-button {
     width: 100%;
   }
 
@@ -938,7 +1164,8 @@ input {
   .simulator-card,
   .radar-card,
   .auth-panel,
-  .quiz-panel {
+  .quiz-panel,
+  .practice-stage-card {
     padding: 22px;
     border-radius: 24px;
   }
@@ -951,6 +1178,10 @@ input {
   .topic-chip {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .panel-header-spread {
+    align-items: flex-start;
   }
 
   .todo-action-row .primary-button,

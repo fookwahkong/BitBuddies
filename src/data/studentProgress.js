@@ -1,5 +1,6 @@
 import { addDoc, collection, doc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { db } from "../firebaseConfig";
+import { applyAttemptToAcademicProfile, buildSubjectMasteryModel } from "./academicProfile";
 import {
   blendPersonaMatchScores,
   buildLearningRadar,
@@ -13,16 +14,26 @@ const RADAR_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 function createEventPayload(student, action) {
   const timestamp = action.timestamp || Date.now();
+  const timeSpentSec = typeof action.timeSpentSec === "number"
+    ? action.timeSpentSec
+    : (typeof action.timeTakenSec === "number" ? action.timeTakenSec : null);
 
   return {
     userId: student.studentID,
     timestamp,
     eventType: action.eventType,
-    topicId: action.topicId,
+    topicId: action.topicId || action.subjectId || "general",
+    subjectId: action.subjectId || action.topicId || "general",
     questionId: action.questionId || null,
     difficulty: action.difficulty || 1,
     isCorrect: typeof action.isCorrect === "boolean" ? action.isCorrect : null,
-    timeTakenSec: typeof action.timeTakenSec === "number" ? action.timeTakenSec : null,
+    timeSpentSec,
+    timeTakenSec: timeSpentSec,
+    attemptNo: Number(action.attemptNo) || 1,
+    hintUsed: Boolean(action.hintUsed),
+    sourceFile: action.sourceFile || null,
+    detectedTopic: action.detectedTopic || "",
+    questionType: action.questionType || "",
   };
 }
 
@@ -86,6 +97,15 @@ export async function recordLearningAction(student, action) {
   const previousMeta = student.learningRadar?.meta || {};
   const nextTotalEvents = (previousMeta.totalEvents || 0) + 1;
   const shouldRefresh = shouldRefreshFromMeta(previousMeta, nextEvent.timestamp);
+  const nextAcademicProfile = applyAttemptToAcademicProfile(
+    student.academicProfile,
+    nextEvent,
+    nextEvent.timestamp,
+  );
+  const academicProfileChanged = nextAcademicProfile !== student.academicProfile;
+  const nextSubjectMastery = academicProfileChanged
+    ? buildSubjectMasteryModel(nextAcademicProfile, nextEvent.timestamp)
+    : student.subjectMastery;
 
   await addDoc(collection(db, "students", docId, "learningEvents"), nextEvent);
 
@@ -131,7 +151,20 @@ export async function recordLearningAction(student, action) {
   const updatePayload = {
     learningRadar: nextRadar,
     updatedAt: new Date(nextEvent.timestamp).toISOString(),
+    "practiceIntake.lastUploadedSource": nextEvent.sourceFile || null,
+    "practiceIntake.pendingMetadata": {
+      subjectId: nextEvent.subjectId || null,
+      detectedTopic: nextEvent.detectedTopic || "",
+      questionType: nextEvent.questionType || "",
+      difficulty: nextEvent.difficulty || 1,
+      updatedAt: new Date(nextEvent.timestamp).toISOString(),
+    },
   };
+
+  if (academicProfileChanged) {
+    updatePayload.academicProfile = nextAcademicProfile;
+    updatePayload.subjectMastery = nextSubjectMastery;
+  }
 
   if (shouldRefresh || !student.persona.ranked) {
     updatePayload["persona.primary"] = nextPrimary;
@@ -155,6 +188,19 @@ export async function recordLearningAction(student, action) {
       initialPrimary: student.persona.initialPrimary || student.persona.primary,
       liveMatchScores,
       ranked,
+    },
+    academicProfile: nextAcademicProfile,
+    subjectMastery: nextSubjectMastery,
+    practiceIntake: {
+      ...(student.practiceIntake || {}),
+      lastUploadedSource: nextEvent.sourceFile || null,
+      pendingMetadata: {
+        subjectId: nextEvent.subjectId || null,
+        detectedTopic: nextEvent.detectedTopic || "",
+        questionType: nextEvent.questionType || "",
+        difficulty: nextEvent.difficulty || 1,
+        updatedAt: new Date(nextEvent.timestamp).toISOString(),
+      },
     },
     learningEvents: nextRecentEvents,
     learningRadar: nextRadar,

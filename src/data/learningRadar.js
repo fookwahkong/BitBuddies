@@ -1,3 +1,5 @@
+import { buildSubjectMasteryModel } from "./academicProfile";
+
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const SESSION_GAP_MS = 30 * 60 * 1000;
 const MEANINGFUL_ACTIVITY_EVENT_COUNT = 5;
@@ -800,12 +802,19 @@ export function buildSessionFromStudentRecord(studentRecord = {}) {
       matchScores: fallbackMatchScores,
       events: studentRecord?.learningEvents || [],
     });
+  const academicProfile = studentRecord?.academicProfile || null;
+  const subjectMastery = studentRecord?.subjectMastery
+    || (academicProfile ? buildSubjectMasteryModel(academicProfile) : null);
 
   return {
     docId: studentRecord.docId || studentRecord.firestoreDocId || null,
+    uid: studentRecord.docId || studentRecord.firestoreDocId || null,
     studentID: studentRecord.studentID,
     name: studentRecord.username || studentRecord.name || "Student",
     email: studentRecord.email || "",
+    academicProfile,
+    subjectMastery,
+    practiceIntake: studentRecord.practiceIntake || null,
     persona: {
       primary: primaryPersona,
       initialPrimary: studentRecord?.persona?.initialPrimary || primaryPersona,
@@ -814,6 +823,9 @@ export function buildSessionFromStudentRecord(studentRecord = {}) {
       ranked: studentRecord?.persona?.ranked || rankPersonaScores(fallbackMatchScores),
       rawScores: studentRecord?.persona?.rawScores || null,
     },
+    personaConfidence: typeof studentRecord?.personaConfidence === "number"
+      ? studentRecord.personaConfidence
+      : primaryPersona.matchScore || 0,
     learningRadar,
     learningEvents: studentRecord.learningEvents || [],
   };

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import LandingPage from "./pages/LandingPage";
 import AuthPage from "./pages/AuthPage";
 import HomePage from "./pages/HomePage";
+import PracticePage from "./pages/PracticePage";
 import ToDoPage from "./pages/ToDoPage";
 import { recordLearningAction } from "./data/studentProgress";
 
@@ -52,7 +53,18 @@ export default function App() {
         <HomePage
           user={session}
           onSignOut={handleSignOut}
+          onOpenPractice={() => setScreen("practice")}
           onOpenToDo={() => setScreen("todo")}
+        />
+      ) : null}
+
+      {screen === "practice" && session ? (
+        <PracticePage
+          user={session}
+          onBackHome={() => setScreen("home")}
+          onLogLearningAction={handleLearningAction}
+          onOpenToDo={() => setScreen("todo")}
+          onSignOut={handleSignOut}
         />
       ) : null}
 
