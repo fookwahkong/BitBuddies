@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import PersonaVisual from "../components/PersonaVisual";
 import RadarChart from "../components/RadarChart";
 import TopNav from "../components/TopNav";
@@ -58,23 +58,21 @@ function buildPersonaDisplayMix(rankedPersonas) {
     });
 }
 
-function joinInsight(items, fallback) {
-  if (!items?.length) {
-    return fallback;
-  }
-
-  return items.map((item) => `${item.label} (${item.reason})`).join(" • ");
-}
-
-export default function HomePage({ onSignOut, onOpenPractice, onOpenToDo, user }) {
 export default function HomePage({
   onSignOut,
   onOpenPractice,
   onOpenToDo,
   onOpenJudge,
   onOpenPersonas,
+  onToggleStudyPlan,
   user,
 }) {
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, []);
+
   const primaryPersona = user.persona.primary;
   const rankedPersonas = buildPersonaDisplayMix(user.persona.ranked);
   const radar = user.learningRadar;
@@ -94,6 +92,7 @@ export default function HomePage({
   const recomputeDate = radar.meta?.lastComputedAt
     ? new Date(radar.meta.lastComputedAt).toLocaleString()
     : "Not computed yet";
+  const studyPlanTodos = Array.isArray(user.studyPlanTodos) ? user.studyPlanTodos : [];
 
   return (
     <main className="screen-shell">
@@ -218,6 +217,44 @@ export default function HomePage({
             </ul>
           </div>
         </div>
+      </section>
+
+      <section className="student-card">
+        <div className="panel-header panel-header-spread">
+          <div>
+            <p className="eyebrow">Committed Plans</p>
+            <h2>Your ToDo list updates automatically from committed study nodes.</h2>
+          </div>
+          <button className="secondary-button" type="button" onClick={onOpenToDo}>
+            Open ToDo planner
+          </button>
+        </div>
+
+        {studyPlanTodos.length ? (
+          <div className="study-plan-list">
+            {studyPlanTodos.map((item) => (
+              <label key={item.id} className={`study-plan-item${item.completed ? " is-complete" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(item.completed)}
+                  onChange={() => onToggleStudyPlan(item.id)}
+                />
+                <div className="study-plan-copy">
+                  <strong>{item.title}</strong>
+                  <p>{item.details}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div className="todo-feedback">
+            No study plan has been committed yet. Pick a node in Possible Worlds and press
+            {" "}
+            <strong>Commit this study plan</strong>
+            {" "}
+            to send it here.
+          </div>
+        )}
       </section>
     </main>
   );

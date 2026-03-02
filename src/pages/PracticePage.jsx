@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import TopNav from "../components/TopNav";
+import { buildPracticeAnalysis } from "../data/practiceAnalysis";
 
 function buildDefaultMetadata(subjects = [], file = null) {
   const fallbackSubject = subjects[0] || null;
@@ -28,6 +29,7 @@ export default function PracticePage({
   user,
   onBackHome,
   onLogLearningAction,
+  onOpenPracticeAnalysis,
   onOpenToDo,
   onOpenJudge,
   onOpenPersonas,
@@ -112,7 +114,7 @@ export default function PracticePage({
     setStatus("");
 
     try {
-      await onLogLearningAction({
+      const action = {
         eventType: "attempt",
         subjectId: metadata.subjectId,
         topicId: metadata.subjectId,
@@ -129,9 +131,18 @@ export default function PracticePage({
           type: selectedFile.type || "unknown",
           size: selectedFile.size || 0,
         },
+      };
+
+      const updatedSession = await onLogLearningAction(action);
+      const nextSession = updatedSession || user;
+      const analysis = buildPracticeAnalysis({
+        user: nextSession,
+        action,
+        uploadedFile: selectedFile,
       });
 
-      handleResetUpload("Attempt logged. Upload another file when you are ready.");
+      handleResetUpload();
+      onOpenPracticeAnalysis(analysis);
     } catch (submissionError) {
       console.error("Practice logging error:", submissionError);
       setError("The attempt could not be logged. Please try again.");

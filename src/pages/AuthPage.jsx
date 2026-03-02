@@ -241,6 +241,7 @@ export default function AuthPage({ onBack, onComplete }) {
           lastUploadedSource: null,
           pendingMetadata: null,
         },
+        studyPlanTodos: [],
         ...answersMap,
         createdAt: new Date(now).toISOString(),
         updatedAt: new Date(now).toISOString(),

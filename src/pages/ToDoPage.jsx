@@ -126,6 +126,10 @@ const DEFAULT_NODE_MAP = {
   },
 };
 
+const INITIAL_NODE_MAP = {
+  start: DEFAULT_NODE_MAP.start,
+};
+
 const DEFAULT_POSITIONS = {
   start: { x: 50, y: 14 },
   review: { x: 30, y: 42 },
@@ -136,11 +140,15 @@ const DEFAULT_POSITIONS = {
   drill: { x: 82, y: 74 },
 };
 
+const INITIAL_POSITIONS = {
+  start: DEFAULT_POSITIONS.start,
+};
+
 const STARTER_MESSAGES = [
   {
     role: "assistant",
     content:
-      "Hi! I'm your study buddy. Ask me anything about your revision plan, or tell me how your last session went.",
+      "Hi! I'm your study buddy. Tell me what topic feels weak or what happened in your last revision session. I will suggest study plans for the first layer of the tree and ask for your approval before adding them.",
   },
 ];
 
@@ -163,6 +171,9 @@ function normalizeNode(nodeMap, node) {
     ...fallback,
     ...rawNode,
     reason: Array.isArray(rawNode.reason) ? rawNode.reason : fallback.reason,
+    whyThisFits:
+      rawNode?.whyThisFits
+      || (Array.isArray(rawNode.reason) && rawNode.reason.length ? rawNode.reason[0] : fallback.reason?.[0]),
     impact:
       rawNode.impact && typeof rawNode.impact === "object"
         ? rawNode.impact
@@ -245,122 +256,57 @@ function buildPositionMap(nodeMap, positions) {
   return resolvedPositions;
 }
 
-function RadarChart({ values }) {
-  const center = 96;
-  const radius = 62;
-  const rings = [20, 40, 60, 80, 100];
+function collectNodeBranchIds(nodeMap, rootId) {
+  const collected = new Set([rootId]);
+  const queue = [rootId];
 
-  const points = metrics.map((metric, index) => {
-    const angle = ((Math.PI * 2) / metrics.length) * index - Math.PI / 2;
-    return {
-      ...metric,
-      angle,
-      x: center + Math.cos(angle) * radius,
-      y: center + Math.sin(angle) * radius,
-    };
-  });
+  while (queue.length) {
+    const currentId = queue.shift();
 
-  const polygon = points
-    .map((point) => {
-      const valueRadius = (values[point.key] / 100) * radius;
-      return `${center + Math.cos(point.angle) * valueRadius},${
-        center + Math.sin(point.angle) * valueRadius
-      }`;
-    })
-    .join(" ");
+    Object.values(nodeMap).forEach((node) => {
+      if (node.parentId === currentId && !collected.has(node.id)) {
+        collected.add(node.id);
+        queue.push(node.id);
+      }
+    });
+  }
 
-  return (
-    <svg
-      viewBox="0 0 192 192"
-      className="todo-mini-radar"
-      role="img"
-      aria-label="Projected radar chart"
-    >
-      {rings.map((ring) => {
-        const ringPoints = points
-          .map((point) => {
-            const ringRadius = (ring / 100) * radius;
-            return `${center + Math.cos(point.angle) * ringRadius},${
-              center + Math.sin(point.angle) * ringRadius
-            }`;
-          })
-          .join(" ");
-
-        return (
-          <polygon
-            key={ring}
-            points={ringPoints}
-            className="todo-mini-radar-ring"
-          />
-        );
-      })}
-
-      {points.map((point) => (
-        <line
-          key={point.key}
-          x1={center}
-          y1={center}
-          x2={point.x}
-          y2={point.y}
-          className="todo-mini-radar-axis"
-        />
-      ))}
-
-      <polygon
-        points={polygon}
-        className="todo-mini-radar-shape"
-      />
-
-      {points.map((point) => {
-        const valueRadius = (values[point.key] / 100) * radius;
-        const x = center + Math.cos(point.angle) * valueRadius;
-        const y = center + Math.sin(point.angle) * valueRadius;
-        return <circle key={point.key} cx={x} cy={y} r="3.5" className="todo-mini-radar-dot" />;
-      })}
-
-      {points.map((point) => {
-        const labelRadius = radius + 17;
-        const x = center + Math.cos(point.angle) * labelRadius;
-        const y = center + Math.sin(point.angle) * labelRadius;
-
-        return (
-          <text
-            key={`${point.key}-label`}
-            x={x}
-            y={y}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            className="todo-mini-radar-label"
-          >
-            {point.label}
-          </text>
-        );
-      })}
-    </svg>
-  );
+  return [...collected];
 }
 
 function PossibleWorldsMap({
+  user,
   nodeMap,
   positions,
   selectedId,
   setPositions,
   setSelectedId,
+  onResetTree,
+  onCommitStudyPlan,
+  onRemoveNodeBranch,
+  committedNodeId,
+  setCommittedNodeId,
 }) {
   const [drawerExpanded, setDrawerExpanded] = useState(false);
   const sceneRef = useRef(null);
   const dragRef = useRef(null);
   const audioCtxRef = useRef(null);
+  const hasGeneratedNodes = useMemo(
+    () => Object.keys(nodeMap).some((id) => id !== "start"),
+    [nodeMap]
+  );
 
   const edges = useMemo(() => {
-    return Object.values(nodeMap)
-      .filter((node) => node.parentId)
-      .map((node) => ({
-        id: `${node.parentId}-${node.id}`,
-        from: node.parentId,
-        to: node.id,
-      }));
-  }, [nodeMap]);
+    const committedPathIds = (user?.studyPlanTodos || [])
+      .map((item) => item.sourceNodeId)
+      .filter((nodeId) => nodeMap[nodeId]);
+
+    return committedPathIds.map((nodeId, index) => ({
+      id: `${index === 0 ? "start" : committedPathIds[index - 1]}-${nodeId}`,
+      from: index === 0 ? "start" : committedPathIds[index - 1],
+      to: nodeId,
+    }));
+  }, [nodeMap, user?.studyPlanTodos]);
 
   const safePositions = useMemo(() => buildPositionMap(nodeMap, positions), [nodeMap, positions]);
 
@@ -372,10 +318,18 @@ function PossibleWorldsMap({
   }, [nodeMap, safePositions]);
 
   useEffect(() => {
-    if (!nodeMap[selectedId]) {
-      setSelectedId(nodeMap.teach ? "teach" : "start");
+    if (!hasGeneratedNodes) {
+      if (selectedId !== null) {
+        setSelectedId(null);
+      }
+      return;
     }
-  }, [nodeMap, selectedId, setSelectedId]);
+
+    if (!nodeMap[selectedId] || selectedId === "start") {
+      const firstGeneratedId = Object.keys(nodeMap).find((id) => id !== "start") ?? null;
+      setSelectedId(firstGeneratedId);
+    }
+  }, [hasGeneratedNodes, nodeMap, selectedId, setSelectedId]);
 
   useEffect(() => {
     const missingIds = Object.keys(safePositions).filter((id) => !positions?.[id]);
@@ -397,14 +351,33 @@ function PossibleWorldsMap({
   }, [positions, safePositions, setPositions]);
 
   const selectedNode = useMemo(() => {
-    const fallbackId = nodeMap[selectedId] ? selectedId : nodeMap.teach ? "teach" : "start";
-    return normalizeNode(nodeMap, nodeMap[fallbackId]);
-  }, [nodeMap, selectedId]);
+    if (!hasGeneratedNodes) {
+      return null;
+    }
 
-  const projectedState = useMemo(() => buildProjectedState(selectedNode), [selectedNode]);
+    const fallbackId =
+      nodeMap[selectedId] && selectedId !== "start"
+        ? selectedId
+        : Object.keys(nodeMap).find((id) => id !== "start") ?? null;
+
+    return fallbackId ? normalizeNode(nodeMap, nodeMap[fallbackId]) : null;
+  }, [hasGeneratedNodes, nodeMap, selectedId]);
+
+  const projectedState = useMemo(
+    () => buildProjectedState(selectedNode ?? DEFAULT_NODE_MAP.start),
+    [selectedNode]
+  );
   const activePath = useMemo(
-    () => getPathIds(nodeMap, selectedNode.id),
-    [nodeMap, selectedNode.id]
+    () => (selectedNode ? getPathIds(nodeMap, selectedNode.id) : new Set()),
+    [nodeMap, selectedNode]
+  );
+  const committedTodo = useMemo(
+    () => user?.studyPlanTodos?.find((item) => item.sourceNodeId === selectedNode?.id) || null,
+    [selectedNode?.id, user?.studyPlanTodos]
+  );
+  const committedNode = useMemo(
+    () => (committedNodeId && nodeMap[committedNodeId] ? normalizeNode(nodeMap, nodeMap[committedNodeId]) : null),
+    [committedNodeId, nodeMap]
   );
 
   function playTone() {
@@ -449,6 +422,16 @@ function PossibleWorldsMap({
     playTone();
   }
 
+  async function handleCommitSelectedNode(event) {
+    event.stopPropagation();
+    if (!selectedNode) {
+      return;
+    }
+
+    await onCommitStudyPlan(selectedNode);
+    setCommittedNodeId(selectedNode.id);
+  }
+
   useEffect(() => {
     function onMove(event) {
       if (!dragRef.current || !sceneRef.current) return;
@@ -474,12 +457,7 @@ function PossibleWorldsMap({
     function onUp() {
       if (!dragRef.current) return;
 
-      const { id, moved } = dragRef.current;
       dragRef.current = null;
-
-      if (!moved) {
-        selectNode(id);
-      }
     }
 
     function resetDrag() {
@@ -502,153 +480,203 @@ function PossibleWorldsMap({
   return (
     <div className="todo-map-shell">
       <div className="todo-map-header">
-        <span className="todo-eyebrow">Interactive assignment map</span>
-        <h2 className="todo-map-title">Possible Worlds</h2>
-        <p className="todo-map-subtitle">
-          Tap a bubble to select an assignment path. Drag any bubble except the
-          anchor to rearrange. Student prompts can now add new branches or leaf
-          options without replacing the whole tree.
-        </p>
+        <div>
+          <span className="todo-eyebrow">Interactive assignment map</span>
+          <h2 className="todo-map-title">Possible Worlds</h2>
+          <p className="todo-map-subtitle">
+            Student prompts create the first branch. After that, each new message
+            can add or refine assignment paths without replacing the whole tree.
+          </p>
+          {committedNode ? (
+            <p className="todo-map-subtitle">
+              Current committed path anchor: <strong>{committedNode.label}</strong>
+            </p>
+          ) : null}
+        </div>
+        <button type="button" className="secondary-button todo-reset-button" onClick={onResetTree}>
+          Reset tree
+        </button>
       </div>
 
       <div className="todo-map-board" ref={sceneRef}>
-        <svg
-          viewBox="0 0 100 100"
-          className="todo-map-branches"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          {edges.map((edge) => {
-            const from = safePositions[edge.from];
-            const to = safePositions[edge.to];
-            if (!from || !to) return null;
-
-            const isActive = activePath.has(edge.from) && activePath.has(edge.to);
-
-            return (
-              <line
-                key={edge.id}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                className={`todo-map-edge${isActive ? " todo-map-edge-active" : ""}`}
-              />
-            );
-          })}
-        </svg>
-
-        {nodes.map((node) => {
-          const isSelected = node.id === selectedNode.id;
-          const isRoot = node.id === "start";
-          const inPath = activePath.has(node.id);
-
-          return (
-            <button
-              key={node.id}
-              type="button"
-              className={`todo-world-node${isSelected ? " is-selected" : ""}${inPath ? " is-path" : ""}${isRoot ? " is-root" : ""}`}
-              style={{
-                left: `${node.position.x}%`,
-                top: `${node.position.y}%`,
-              }}
-              onPointerDown={(event) => {
-                if (isRoot) return;
-
-                event.currentTarget.setPointerCapture?.(event.pointerId);
-                dragRef.current = {
-                  id: node.id,
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  moved: false,
-                };
-              }}
-              onClick={() => {
-                if (isRoot) {
-                  selectNode(node.id);
-                }
-              }}
-            >
-              <span className="todo-world-node-tag">{node.tag}</span>
-              <strong className="todo-world-node-label">{node.label}</strong>
-            </button>
-          );
-        })}
-
-        <div
-          className={`todo-world-drawer${drawerExpanded ? " is-expanded" : ""}`}
-          onClick={() => {
-            if (!drawerExpanded) {
-              setDrawerExpanded(true);
-            }
-          }}
-        >
-          <div className="todo-world-drawer-header">
-            <div>
-              <span className="todo-eyebrow">Selected world</span>
-              <h3 className="todo-world-drawer-title">{selectedNode.label}</h3>
-            </div>
-            <button
-              type="button"
-              className="todo-world-toggle"
-              onClick={(event) => {
-                event.stopPropagation();
-                setDrawerExpanded((current) => !current);
-              }}
-            >
-              {drawerExpanded ? "Minimize" : "Expand"}
-            </button>
+        {!hasGeneratedNodes ? (
+          <div className="todo-map-empty">
+            <span className="todo-eyebrow">Tree starts empty</span>
+            <h3 className="todo-map-empty-title">No revision branches yet</h3>
+            <p className="todo-map-empty-text">
+              Ask the chatbot about a weak topic, confusing question, or what to
+              do next. BitBuddies will create the first branch and explanation
+              from that conversation.
+            </p>
           </div>
+        ) : (
+          <>
+            <svg
+              viewBox="0 0 100 100"
+              className="todo-map-branches"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              {edges.map((edge) => {
+                const from = safePositions[edge.from];
+                const to = safePositions[edge.to];
+                if (!from || !to) return null;
 
-          <div className={`todo-world-drawer-body${drawerExpanded ? " is-expanded" : ""}`}>
-            <p className="todo-world-assignment">{selectedNode.assignment}</p>
+                return (
+                  <line
+                    key={edge.id}
+                    x1={from.x}
+                    y1={from.y}
+                    x2={to.x}
+                    y2={to.y}
+                    className="todo-map-edge todo-map-edge-active"
+                  />
+                );
+              })}
+            </svg>
 
-            <div className="todo-world-radar-wrap">
-              <RadarChart values={projectedState} />
-            </div>
+            {nodes.map((node) => {
+              const isSelected = node.id === selectedNode?.id;
+              const isRoot = node.id === "start";
+              const inPath = activePath.has(node.id) && !isRoot;
 
-            <div className="todo-world-metric-grid">
-              {metrics.map((metric) => (
-                <div key={metric.key} className="todo-world-metric-card">
-                  <span className="todo-world-metric-label">{metric.label}</span>
-                  <strong className="todo-world-metric-value">
-                    {projectedState[metric.key]}
-                  </strong>
+              return (
+                <div
+                  key={node.id}
+                  className={`todo-world-node${isSelected ? " is-selected" : ""}${inPath ? " is-path" : ""}${isRoot ? " is-root" : ""}`}
+                  style={{
+                    left: `${node.position.x}%`,
+                    top: `${node.position.y}%`,
+                  }}
+                  onPointerDown={(event) => {
+                    selectNode(node.id);
+                    if (isRoot) return;
+
+                    event.currentTarget.setPointerCapture?.(event.pointerId);
+                    dragRef.current = {
+                      id: node.id,
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      moved: false,
+                    };
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectNode(node.id);
+                    }
+                  }}
+                >
+                  {!isRoot ? (
+                    <button
+                      type="button"
+                      className="todo-world-remove"
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRemoveNodeBranch(node.id);
+                      }}
+                    >
+                      x
+                    </button>
+                  ) : null}
+                  <span className="todo-world-node-tag">{node.tag}</span>
+                  <strong className="todo-world-node-label">{node.label}</strong>
                 </div>
-              ))}
-            </div>
+              );
+            })}
 
-            {drawerExpanded ? (
-              <div className="todo-world-expanded">
-                <div>
-                  <h4 className="todo-world-expanded-heading">Why this choice</h4>
-                  <ul className="todo-world-expanded-list">
-                    {selectedNode.reason.map((item) => (
-                      <li key={item} className="todo-world-expanded-item">
-                        {item}
-                      </li>
+            {selectedNode ? (
+              <div
+                className={`todo-world-drawer${drawerExpanded ? " is-expanded" : ""}`}
+                onClick={() => {
+                  if (!drawerExpanded) {
+                    setDrawerExpanded(true);
+                  }
+                }}
+              >
+                <div className="todo-world-drawer-header">
+                  <div>
+                    <span className="todo-eyebrow">Selected world</span>
+                    <h3 className="todo-world-drawer-title">{selectedNode.label}</h3>
+                  </div>
+                  <button
+                    type="button"
+                    className="todo-world-toggle"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDrawerExpanded((current) => !current);
+                    }}
+                  >
+                  {drawerExpanded ? "Minimize" : "Expand"}
+                  </button>
+                </div>
+
+                <div className={`todo-world-drawer-body${drawerExpanded ? " is-expanded" : ""}`}>
+                  <p className="todo-world-assignment">{selectedNode.assignment}</p>
+                  <div className="todo-world-explain-panel">
+                    <h4 className="todo-world-expanded-heading">Why BitBuddies suggested this</h4>
+                    <p className="todo-world-explain-lead">{selectedNode.whyThisFits}</p>
+                    <ul className="todo-world-expanded-list">
+                      {selectedNode.reason.map((item) => (
+                        <li key={item} className="todo-world-expanded-item">
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="todo-world-metric-grid">
+                    {metrics.map((metric) => (
+                      <div key={metric.key} className="todo-world-metric-card">
+                        <span className="todo-world-metric-label">{metric.label}</span>
+                        <strong className="todo-world-metric-value">
+                          {projectedState[metric.key]}
+                        </strong>
+                      </div>
                     ))}
-                  </ul>
-                </div>
-                <div>
-                  <h4 className="todo-world-expanded-heading">What changes</h4>
-                  <p className="todo-world-expanded-text">
-                    This path shifts the learner from the current baseline into a
-                    new possible world with a stronger emphasis on{" "}
-                    {selectedNode.depth >= 2
-                      ? "a concrete assignment"
-                      : "a direction choice"}
-                    .
-                  </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="primary-button todo-commit-button"
+                    onClick={handleCommitSelectedNode}
+                  >
+                    {committedNodeId === selectedNode.id
+                      ? "Committed path anchor"
+                      : committedTodo
+                        ? "Set as committed path"
+                        : "Commit this study plan"}
+                  </button>
+
+                  {drawerExpanded ? (
+                    <div className="todo-world-expanded">
+                      <div>
+                        <h4 className="todo-world-expanded-heading">What changes</h4>
+                        <p className="todo-world-expanded-text">
+                          This path shifts the learner from the current baseline into a
+                          new possible world with a stronger emphasis on{" "}
+                          {selectedNode.depth >= 2
+                            ? "a concrete assignment"
+                            : "a direction choice"}
+                          .
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="todo-world-hint">
+                      Press this card to open the full explanation and radar details.
+                    </p>
+                  )}
                 </div>
               </div>
-            ) : (
-              <p className="todo-world-hint">
-                Press this card to open the full explanation and radar details.
-              </p>
-            )}
-          </div>
-        </div>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -659,18 +687,49 @@ function StudentPrompt({
   setNodeMapState,
   setPositionsState,
   setSelectedIdState,
+  setCommittedNodeIdState,
+  messages,
+  setMessages,
+  pendingProposals,
+  setPendingProposals,
+  pendingSelectedProposalId,
+  setPendingSelectedProposalId,
+  committedNodeId,
+  nodeMap,
 }) {
-  const [messages, setMessages] = useState(STARTER_MESSAGES);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hoveredProposalId, setHoveredProposalId] = useState(null);
   const bottomRef = useRef(null);
+
+  const activeProposal = useMemo(
+    () => pendingProposals.find((proposal) => proposal.id === hoveredProposalId)
+      || pendingProposals.find((proposal) => proposal.id === pendingSelectedProposalId)
+      || pendingProposals[0]
+      || null,
+    [hoveredProposalId, pendingProposals, pendingSelectedProposalId]
+  );
+  const committedParentLabel = committedNodeId && nodeMap?.[committedNodeId]
+    ? nodeMap[committedNodeId].label
+    : "Start point";
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  async function handleSend() {
-    const text = input.trim();
+  useEffect(() => {
+    if (!pendingProposals.length) {
+      setHoveredProposalId(null);
+      return;
+    }
+
+    if (!pendingProposals.some((proposal) => proposal.id === hoveredProposalId)) {
+      setHoveredProposalId(pendingSelectedProposalId || pendingProposals[0].id);
+    }
+  }, [hoveredProposalId, pendingProposals, pendingSelectedProposalId]);
+
+  async function sendText(rawText) {
+    const text = rawText.trim();
     if (!text || loading) return;
 
     const userMessage = { role: "user", content: text };
@@ -700,9 +759,10 @@ function StudentPrompt({
         if (data.newTreeState.positions) {
           setPositionsState(data.newTreeState.positions);
         }
-        if (data.newTreeState.selectedId) {
-          setSelectedIdState(data.newTreeState.selectedId);
-        }
+        setSelectedIdState(data.newTreeState.selectedId ?? null);
+        setCommittedNodeIdState(data.newTreeState.committedNodeId ?? null);
+        setPendingProposals(data.newTreeState.pendingProposals ?? []);
+        setPendingSelectedProposalId(data.newTreeState.pendingSelectedProposalId ?? null);
       }
 
       setMessages([
@@ -724,6 +784,10 @@ function StudentPrompt({
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSend() {
+    return sendText(input);
   }
 
   function handleKeyDown(event) {
@@ -766,6 +830,73 @@ function StudentPrompt({
           </div>
         )}
 
+        {pendingProposals.length ? (
+          <div className="todo-chat-proposals">
+            <p className="todo-chat-proposals-title">Suggested study plans</p>
+            <div className="todo-chat-proposals-layout">
+              <div className="todo-chat-proposal-list">
+                {pendingProposals.map((proposal, index) => {
+                  const isSelected = proposal.id === pendingSelectedProposalId;
+
+                  return (
+                    <button
+                      key={proposal.id}
+                      type="button"
+                      className={`todo-chat-proposal-card${isSelected ? " is-selected" : ""}`}
+                      onClick={() => sendText(String(index + 1))}
+                      onMouseEnter={() => setHoveredProposalId(proposal.id)}
+                      onFocus={() => setHoveredProposalId(proposal.id)}
+                      disabled={loading}
+                    >
+                      <span className="todo-chat-proposal-index">{index + 1}</span>
+                      <div className="todo-chat-proposal-copy">
+                        <strong>{proposal.label}</strong>
+                        <span>{proposal.assignment}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {activeProposal ? (
+                <div className="todo-chat-proposal-preview">
+                  <p className="todo-chat-proposal-preview-kicker">
+                    Builds under: {committedParentLabel}
+                  </p>
+                  <h3>{activeProposal.label}</h3>
+                  <p className="todo-chat-proposal-preview-lead">{activeProposal.whyThisFits}</p>
+                  <ul className="todo-world-expanded-list">
+                    {activeProposal.reason.map((item) => (
+                      <li key={item} className="todo-world-expanded-item">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="todo-chat-proposal-actions">
+              <button
+                type="button"
+                className="todo-chat-action-button"
+                onClick={() => sendText("yes")}
+                disabled={loading || !pendingSelectedProposalId}
+              >
+                Add selected
+              </button>
+              <button
+                type="button"
+                className="todo-chat-action-button is-secondary"
+                onClick={() => sendText("no")}
+                disabled={loading}
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div ref={bottomRef} />
       </div>
 
@@ -800,10 +931,23 @@ export default function ToDoPage({
   onOpenJudge,
   onOpenPersonas,
   onSignOut,
+  onCommitStudyPlan,
+  onRemoveStudyPlanNodes,
 }) {
-  const [nodeMapState, setNodeMapState] = useState(DEFAULT_NODE_MAP);
-  const [positionsState, setPositionsState] = useState(DEFAULT_POSITIONS);
-  const [selectedIdState, setSelectedIdState] = useState("teach");
+  const [nodeMapState, setNodeMapState] = useState(INITIAL_NODE_MAP);
+  const [positionsState, setPositionsState] = useState(INITIAL_POSITIONS);
+  const [selectedIdState, setSelectedIdState] = useState(null);
+  const [pendingProposalsState, setPendingProposalsState] = useState([]);
+  const [pendingSelectedProposalIdState, setPendingSelectedProposalIdState] = useState(null);
+  const [committedNodeIdState, setCommittedNodeIdState] = useState(null);
+  const [messagesState, setMessagesState] = useState(STARTER_MESSAGES);
+  const [treeReady, setTreeReady] = useState(false);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, []);
 
   useEffect(() => {
     async function loadTree() {
@@ -816,16 +960,26 @@ export default function ToDoPage({
         const data = snapshot.data();
         if (data.nodeMap) setNodeMapState(data.nodeMap);
         if (data.positions) setPositionsState(data.positions);
-        if (data.selectedId) setSelectedIdState(data.selectedId);
+        setSelectedIdState(data.selectedId ?? null);
+        setPendingProposalsState(data.pendingProposals ?? []);
+        setPendingSelectedProposalIdState(data.pendingSelectedProposalId ?? null);
+        setCommittedNodeIdState(data.committedNodeId ?? null);
+        setMessagesState(data.messages ?? STARTER_MESSAGES);
+        setTreeReady(true);
         return;
       }
 
       await setDoc(docRef, {
-        nodeMap: DEFAULT_NODE_MAP,
-        positions: DEFAULT_POSITIONS,
-        selectedId: "teach",
+        nodeMap: INITIAL_NODE_MAP,
+        positions: INITIAL_POSITIONS,
+        selectedId: null,
+        committedNodeId: null,
+        messages: STARTER_MESSAGES,
+        pendingProposals: [],
+        pendingSelectedProposalId: null,
         updatedAt: Date.now(),
       });
+      setTreeReady(true);
     }
 
     loadTree();
@@ -833,7 +987,7 @@ export default function ToDoPage({
 
   useEffect(() => {
     async function saveTree() {
-      if (!user?.uid) return;
+      if (!user?.uid || !treeReady) return;
 
       const docRef = doc(db, "userTrees", user.uid);
 
@@ -841,12 +995,79 @@ export default function ToDoPage({
         nodeMap: nodeMapState,
         positions: positionsState,
         selectedId: selectedIdState,
+        committedNodeId: committedNodeIdState,
+        messages: messagesState,
+        pendingProposals: pendingProposalsState,
+        pendingSelectedProposalId: pendingSelectedProposalIdState,
         updatedAt: Date.now(),
       });
     }
 
     saveTree();
-  }, [nodeMapState, positionsState, selectedIdState, user?.uid]);
+  }, [
+    nodeMapState,
+    positionsState,
+    selectedIdState,
+    committedNodeIdState,
+    messagesState,
+    pendingProposalsState,
+    pendingSelectedProposalIdState,
+    treeReady,
+    user?.uid,
+  ]);
+
+  async function handleResetTree() {
+    if (!user?.uid) {
+      return;
+    }
+
+    const docRef = doc(db, "userTrees", user.uid);
+    const nextState = {
+      nodeMap: INITIAL_NODE_MAP,
+      positions: INITIAL_POSITIONS,
+      selectedId: null,
+      committedNodeId: null,
+      messages: STARTER_MESSAGES,
+      pendingProposals: [],
+      pendingSelectedProposalId: null,
+      updatedAt: Date.now(),
+    };
+
+    await setDoc(docRef, nextState);
+    setNodeMapState(INITIAL_NODE_MAP);
+    setPositionsState(INITIAL_POSITIONS);
+    setSelectedIdState(null);
+    setCommittedNodeIdState(null);
+    setMessagesState(STARTER_MESSAGES);
+    setPendingProposalsState([]);
+    setPendingSelectedProposalIdState(null);
+  }
+
+  async function handleRemoveNodeBranch(nodeId) {
+    if (!nodeMapState[nodeId]) {
+      return;
+    }
+
+    const removedIds = collectNodeBranchIds(nodeMapState, nodeId);
+    const removedSet = new Set(removedIds);
+    const nextNodeMap = Object.fromEntries(
+      Object.entries(nodeMapState).filter(([id]) => !removedSet.has(id))
+    );
+    const nextPositions = Object.fromEntries(
+      Object.entries(positionsState).filter(([id]) => !removedSet.has(id))
+    );
+    const parentId = nodeMapState[nodeId]?.parentId;
+    const fallbackCommittedId = parentId && parentId !== "start" && !removedSet.has(parentId) ? parentId : null;
+
+    setNodeMapState(nextNodeMap);
+    setPositionsState(nextPositions);
+    setSelectedIdState((current) => (removedSet.has(current) ? fallbackCommittedId : current));
+    setCommittedNodeIdState((current) => (removedSet.has(current) ? fallbackCommittedId : current));
+    setPendingProposalsState([]);
+    setPendingSelectedProposalIdState(null);
+
+    await onRemoveStudyPlanNodes(removedIds);
+  }
 
   return (
     <main className="screen-shell">
@@ -893,11 +1114,17 @@ export default function ToDoPage({
 
       <section className="student-card">
         <PossibleWorldsMap
+          user={user}
           nodeMap={nodeMapState}
           positions={positionsState}
           selectedId={selectedIdState}
           setPositions={setPositionsState}
           setSelectedId={setSelectedIdState}
+          onResetTree={handleResetTree}
+          onCommitStudyPlan={onCommitStudyPlan}
+          onRemoveNodeBranch={handleRemoveNodeBranch}
+          committedNodeId={committedNodeIdState}
+          setCommittedNodeId={setCommittedNodeIdState}
         />
 
         <StudentPrompt
@@ -905,6 +1132,15 @@ export default function ToDoPage({
           setNodeMapState={setNodeMapState}
           setPositionsState={setPositionsState}
           setSelectedIdState={setSelectedIdState}
+          setCommittedNodeIdState={setCommittedNodeIdState}
+          messages={messagesState}
+          setMessages={setMessagesState}
+          pendingProposals={pendingProposalsState}
+          setPendingProposals={setPendingProposalsState}
+          pendingSelectedProposalId={pendingSelectedProposalIdState}
+          setPendingSelectedProposalId={setPendingSelectedProposalIdState}
+          committedNodeId={committedNodeIdState}
+          nodeMap={nodeMapState}
         />
 
         <button

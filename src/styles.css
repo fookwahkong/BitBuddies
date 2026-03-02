@@ -1736,6 +1736,13 @@ input {
   padding: 1.75rem 2rem 1rem;
 }
 
+.todo-map-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .todo-chat-header {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -1778,6 +1785,28 @@ input {
     radial-gradient(circle at 78% 70%, rgba(240, 93, 94, 0.12), transparent 24%);
 }
 
+.todo-map-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  height: 100%;
+  padding: 28px;
+  text-align: center;
+  color: #f7f4ee;
+}
+
+.todo-map-empty-title {
+  margin: 10px 0 0;
+  font-size: 1.3rem;
+}
+
+.todo-map-empty-text {
+  max-width: 460px;
+  margin: 12px 0 0;
+  color: rgba(247, 244, 238, 0.78);
+  line-height: 1.7;
+}
+
 .todo-map-branches {
   position: absolute;
   inset: 0;
@@ -1787,7 +1816,7 @@ input {
 }
 
 .todo-map-edge {
-  stroke: rgba(247, 244, 238, 0.18);
+  stroke: rgba(247, 244, 238, 0);
   stroke-width: 0.45;
   transition: stroke 0.3s ease, stroke-width 0.3s ease, filter 0.3s ease;
 }
@@ -1821,6 +1850,7 @@ input {
     transform 0.22s ease,
     background 0.22s ease,
     box-shadow 0.22s ease;
+  border: 0;
 }
 
 .todo-world-node.is-root {
@@ -1858,6 +1888,34 @@ input {
   font-weight: 700;
 }
 
+.todo-world-remove {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(17, 57, 99, 0.2);
+  color: inherit;
+  font-size: 0.65rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.18s ease, background 0.18s ease;
+}
+
+.todo-world-node:hover .todo-world-remove,
+.todo-world-node:focus-within .todo-world-remove {
+  opacity: 1;
+}
+
+.todo-world-remove:hover,
+.todo-world-remove:focus-visible {
+  background: rgba(17, 57, 99, 0.34);
+  outline: none;
+}
+
 .todo-world-drawer {
   position: absolute;
   right: 1rem;
@@ -1878,8 +1936,13 @@ input {
 }
 
 .todo-world-drawer.is-expanded {
-  width: 336px;
+  width: 420px;
+  max-height: calc(100% - 1rem);
   cursor: default;
+}
+
+.todo-reset-button {
+  flex-shrink: 0;
 }
 
 .todo-world-drawer-header {
@@ -1926,6 +1989,19 @@ input {
   line-height: 1.55;
 }
 
+.todo-world-explain-panel {
+  padding: 0.85rem 0.9rem;
+  border-radius: 18px;
+  background: rgba(13, 90, 156, 0.08);
+}
+
+.todo-world-explain-lead {
+  margin: 0.4rem 0 0;
+  color: rgba(23, 58, 99, 0.8);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
 .todo-world-radar-wrap {
   width: 100%;
   height: 136px;
@@ -1967,6 +2043,11 @@ input {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 0.4rem;
+}
+
+.todo-commit-button {
+  width: 100%;
+  margin-top: 0.15rem;
 }
 
 .todo-world-metric-card {
@@ -2088,6 +2169,147 @@ input {
   color: #173a63;
 }
 
+.todo-chat-proposals {
+  display: grid;
+  gap: 0.75rem;
+  margin-left: 2.2rem;
+  max-width: min(720px, 100%);
+}
+
+.todo-chat-proposals-title {
+  margin: 0;
+  color: rgba(247, 244, 238, 0.7);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.todo-chat-proposal-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.todo-chat-proposals-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.9fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.todo-chat-proposal-card {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(247, 244, 238, 0.12);
+  border-radius: 18px;
+  background: rgba(247, 244, 238, 0.12);
+  color: #f7f4ee;
+  text-align: left;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.todo-chat-proposal-card:hover,
+.todo-chat-proposal-card:focus-visible {
+  border-color: rgba(247, 244, 238, 0.3);
+  background: rgba(247, 244, 238, 0.16);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.todo-chat-proposal-card.is-selected {
+  border-color: rgba(247, 244, 238, 0.6);
+  background: rgba(247, 244, 238, 0.22);
+}
+
+.todo-chat-proposal-index {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(247, 244, 238, 0.96);
+  color: #0d5a9c;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.todo-chat-proposal-copy {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.todo-chat-proposal-copy strong {
+  font-size: 0.86rem;
+}
+
+.todo-chat-proposal-copy span {
+  color: rgba(247, 244, 238, 0.82);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.todo-chat-proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.todo-chat-proposal-preview {
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  background: rgba(247, 244, 238, 0.14);
+  color: #f7f4ee;
+  min-height: 100%;
+}
+
+.todo-chat-proposal-preview-kicker {
+  margin: 0;
+  color: rgba(247, 244, 238, 0.7);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.todo-chat-proposal-preview h3 {
+  margin: 0.45rem 0 0;
+  font-size: 0.98rem;
+}
+
+.todo-chat-proposal-preview-lead {
+  margin: 0.55rem 0 0.8rem;
+  color: rgba(247, 244, 238, 0.88);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.todo-chat-proposal-preview .todo-world-expanded-item {
+  color: rgba(247, 244, 238, 0.84);
+}
+
+.todo-chat-action-button {
+  min-height: 40px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  background: rgba(247, 244, 238, 0.96);
+  color: #0d5a9c;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.todo-chat-action-button.is-secondary {
+  background: rgba(247, 244, 238, 0.14);
+  color: #f7f4ee;
+}
+
 .todo-chat-typing {
   display: flex;
   align-items: center;
@@ -2147,6 +2369,42 @@ input {
   margin-top: 20px;
 }
 
+.study-plan-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.study-plan-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 14px;
+  align-items: flex-start;
+  padding: 18px 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(147, 167, 196, 0.12);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.study-plan-item input {
+  margin-top: 3px;
+}
+
+.study-plan-item.is-complete {
+  opacity: 0.7;
+}
+
+.study-plan-copy strong {
+  display: block;
+  color: #173a63;
+}
+
+.study-plan-copy p {
+  margin: 8px 0 0;
+  color: #5e6b88;
+  line-height: 1.6;
+}
+
 @media (max-width: 1080px) {
   .landing-hero,
   .hero-card,
@@ -2176,6 +2434,14 @@ input {
 
   .todo-chat-bubble {
     max-width: 100%;
+  }
+
+  .todo-chat-proposals {
+    margin-left: 0;
+  }
+
+  .todo-chat-proposals-layout {
+    grid-template-columns: 1fr;
   }
 }
 

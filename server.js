@@ -22,6 +22,62 @@ const client = new OpenAI({
 
 const METRIC_KEYS = ["mastery", "clarity", "confidence", "speed", "readiness"];
 const MAX_TREE_NODES = 12;
+const ROOT_NODE = {
+  id: "start",
+  label: "Start point",
+  parentId: null,
+  depth: 0,
+  tag: "Anchor",
+  assignment: "Choose one path to shape the next study session.",
+  reason: ["The tree will grow from the student's chat prompts."],
+  impact: { mastery: 0, clarity: 0, confidence: 0, speed: 0, readiness: 0 },
+};
+const AFFIRMATIVE_RESPONSES = new Set([
+  "yes",
+  "y",
+  "ok",
+  "okay",
+  "sure",
+  "sounds good",
+  "go ahead",
+  "add it",
+  "add them",
+  "do it",
+  "yep",
+  "yeah",
+]);
+const NEGATIVE_RESPONSES = new Set([
+  "no",
+  "n",
+  "nope",
+  "not yet",
+  "dont add",
+  "don't add",
+  "change it",
+  "change them",
+  "not this",
+]);
+const STUDY_KEYWORDS = [
+  "study",
+  "revise",
+  "revision",
+  "exam",
+  "test",
+  "quiz",
+  "math",
+  "science",
+  "subject",
+  "homework",
+  "practice",
+  "problem",
+  "formula",
+  "topic",
+  "learn",
+  "weak",
+  "strategy",
+  "strategies",
+  "plan",
+];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -49,6 +105,48 @@ function normalizeReasons(reasons) {
     .map((reason) => String(reason).trim())
     .filter(Boolean)
     .slice(0, 4);
+}
+
+function canonicalizeText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function isAffirmativeMessage(message) {
+  const normalized = canonicalizeText(message);
+  return AFFIRMATIVE_RESPONSES.has(normalized);
+}
+
+function isNegativeMessage(message) {
+  const normalized = canonicalizeText(message);
+  return NEGATIVE_RESPONSES.has(normalized);
+}
+
+function isStudyRelatedMessage(message) {
+  const normalized = canonicalizeText(message);
+  return STUDY_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function getProposalChoice(message, pendingProposals) {
+  const normalized = canonicalizeText(message);
+
+  const numericMatch = normalized.match(/\b([1-9]|10)\b/);
+  if (numericMatch) {
+    const index = Number(numericMatch[1]) - 1;
+    if (pendingProposals[index]) {
+      return pendingProposals[index];
+    }
+  }
+
+  return (
+    pendingProposals.find((proposal) => {
+      const label = canonicalizeText(proposal.label);
+      return label && normalized.includes(label);
+    }) ?? null
+  );
 }
 
 function normalizeImpact(impact) {
@@ -87,31 +185,150 @@ function getAutoPosition(nodeMap, positions, nodeId) {
   };
 }
 
-function normalizeNodeForInsert(rawNode, nodeMap) {
+function ensureTreeRoot(treeState) {
+  const nodeMap = { start: ROOT_NODE, ...(treeState?.nodeMap ?? {}) };
+  const positions = { start: { x: 50, y: 14 }, ...(treeState?.positions ?? {}) };
+  const committedNodeId = treeState?.committedNodeId && nodeMap[treeState.committedNodeId]
+    ? treeState.committedNodeId
+    : null;
+
+  return {
+    ...treeState,
+    nodeMap,
+    positions,
+    committedNodeId,
+    selectedId: treeState?.selectedId ?? null,
+    pendingProposals: Array.isArray(treeState?.pendingProposals)
+      ? treeState.pendingProposals
+      : [],
+    pendingSelectedProposalId: treeState?.pendingSelectedProposalId ?? null,
+  };
+}
+
+function normalizeNodeForInsert(rawNode, nodeMap, committedNodeId = null) {
   const id = String(rawNode?.id ?? "").trim();
   if (!id || id === "start") return null;
 
-  const parentId = rawNode?.parentId && nodeMap[rawNode.parentId] ? rawNode.parentId : "start";
+  const parentId = committedNodeId && nodeMap[committedNodeId] ? committedNodeId : "start";
   const parentDepth = nodeMap[parentId] ? getNodeDepth(nodeMap, nodeMap[parentId]) : 0;
-  const requestedDepth = Number(rawNode?.depth);
-  const depth = Number.isFinite(requestedDepth)
-    ? Math.max(parentDepth + 1, requestedDepth)
-    : parentDepth + 1;
 
   return {
     id,
     label: String(rawNode?.label ?? "New option").trim() || "New option",
     parentId,
-    depth,
-    tag:
-      String(rawNode?.tag ?? "").trim() ||
-      (depth <= 1 ? "Branch" : "Assignment"),
+    depth: parentDepth + 1,
+    tag: String(rawNode?.tag ?? "").trim() || "Plan",
     assignment:
       String(rawNode?.assignment ?? "").trim() ||
       "Generated from the student's latest prompt.",
     reason: normalizeReasons(rawNode?.reason),
+    whyThisFits:
+      String(rawNode?.whyThisFits ?? "").trim() ||
+      normalizeReasons(rawNode?.reason)[0],
     impact: normalizeImpact(rawNode?.impact),
   };
+}
+
+function findDuplicateNodeId(nodeMap, candidateNode) {
+  const candidateLabel = canonicalizeText(candidateNode.label);
+  const candidateAssignment = canonicalizeText(candidateNode.assignment);
+
+  return (
+    Object.values(nodeMap).find((node) => {
+      if (node.id === "start") {
+        return false;
+      }
+
+      if (node.parentId !== candidateNode.parentId) {
+        return false;
+      }
+
+      const sameLabel = canonicalizeText(node.label) === candidateLabel;
+      const sameAssignment =
+        candidateAssignment &&
+        canonicalizeText(node.assignment) === candidateAssignment;
+
+      return sameLabel || sameAssignment;
+    })?.id ?? null
+  );
+}
+
+function normalizeProposalList(rawProposals, nodeMap, committedNodeId = null) {
+  const seen = new Set();
+
+  return (Array.isArray(rawProposals) ? rawProposals : [])
+    .map((proposal) => normalizeNodeForInsert(proposal, nodeMap, committedNodeId))
+    .filter(Boolean)
+    .filter((proposal) => {
+      const signature = `${canonicalizeText(proposal.label)}|${canonicalizeText(proposal.assignment)}`;
+      if (seen.has(signature)) {
+        return false;
+      }
+      seen.add(signature);
+      return true;
+    })
+    .slice(0, 3);
+}
+
+function extractJsonObject(text) {
+  const source = String(text ?? "").trim();
+  const fencedMatch = source.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fencedMatch ? fencedMatch[1].trim() : source;
+
+  const firstBrace = candidate.indexOf("{");
+  if (firstBrace === -1) {
+    throw new Error("No JSON object found in model response.");
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = firstBrace; index < candidate.length; index += 1) {
+    const char = candidate[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+
+      if (depth === 0) {
+        return candidate.slice(firstBrace, index + 1);
+      }
+    }
+  }
+
+  throw new Error("Incomplete JSON object in model response.");
+}
+
+function parseModelJson(text) {
+  return JSON.parse(extractJsonObject(text));
 }
 
 function normalizePatchedNode(nodeMap, currentNode, patch) {
@@ -143,6 +360,14 @@ function normalizePatchedNode(nodeMap, currentNode, patch) {
 
   if ("reason" in patch) {
     nextNode.reason = normalizeReasons(patch.reason);
+  }
+
+  if ("whyThisFits" in patch) {
+    nextNode.whyThisFits =
+      String(patch.whyThisFits ?? "").trim() ||
+      nextNode.whyThisFits ||
+      nextNode.reason?.[0] ||
+      "";
   }
 
   if ("impact" in patch) {
@@ -201,6 +426,25 @@ Use the provided context if available.
   }
 });
 
+async function fetchStudentContext(userId) {
+  const snapshot = await db.collection("students").doc(userId).get();
+
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  const student = snapshot.data();
+  return {
+    personaLabel: student?.persona?.primary?.label || student?.persona?.canonicalLabel?.label || "Unknown persona",
+    personaSummary: student?.persona?.primary?.summary || student?.persona?.canonicalLabel?.summary || "",
+    weakTopics: Array.isArray(student?.weakTopicSet) ? student.weakTopicSet.slice(0, 3) : [],
+    behaviorConfidence: student?.persona?.behaviorConfidence || 0,
+    subjectLabels: Array.isArray(student?.academicProfile?.subjects)
+      ? student.academicProfile.subjects.map((subject) => subject.label).slice(0, 6)
+      : [],
+  };
+}
+
 app.post("/api/tree-chat", async (req, res) => {
   try {
     const { userId, message } = req.body;
@@ -212,52 +456,148 @@ app.post("/api/tree-chat", async (req, res) => {
       return res.status(400).json({ error: "Tree not found" });
     }
 
-    const treeState = snapshot.data();
+    const treeState = ensureTreeRoot(snapshot.data());
+    const studentContext = await fetchStudentContext(userId);
+    const trimmedMessage = String(message ?? "").trim();
+
+    if (treeState.pendingProposals.length) {
+      const chosenProposal = getProposalChoice(trimmedMessage, treeState.pendingProposals);
+
+      if (chosenProposal) {
+        const focusedTree = {
+          ...treeState,
+          pendingSelectedProposalId: chosenProposal.id,
+        };
+
+        await docRef.set({
+          ...focusedTree,
+          updatedAt: Date.now(),
+        });
+
+        return res.json({
+          replyText: `You picked "${chosenProposal.label}". Should I add this plan to the tree path now? Reply with yes or no.`,
+          newTreeState: focusedTree,
+        });
+      }
+
+      if (isAffirmativeMessage(trimmedMessage)) {
+        const selectedProposal =
+          treeState.pendingProposals.find(
+            (proposal) => proposal.id === treeState.pendingSelectedProposalId
+          ) ?? null;
+
+        if (!selectedProposal) {
+          const optionsText = treeState.pendingProposals
+            .map((proposal, index) => `${index + 1}. ${proposal.label}`)
+            .join(" ");
+
+          return res.json({
+            replyText: `Pick which strategy you want first. Reply with a number or the exact label: ${optionsText}`,
+            newTreeState: treeState,
+          });
+        }
+
+        const proposedOperations = [selectedProposal].map((proposal) => ({
+          op: "add_node",
+          newNode: proposal,
+        }));
+        const nextSelectedId = selectedProposal.id;
+        const updatedTree = applyOperations(
+          {
+            ...treeState,
+            pendingProposals: [],
+            pendingSelectedProposalId: null,
+          },
+          [
+            ...proposedOperations,
+            ...(nextSelectedId ? [{ op: "select_node", id: nextSelectedId }] : []),
+          ]
+        );
+
+        await docRef.set({
+          ...updatedTree,
+          updatedAt: Date.now(),
+        });
+
+        return res.json({
+          replyText: `Added "${selectedProposal.label}" to your study path. Tap any node to compare the plan, hear the sound, and switch the explanation panel.`,
+          newTreeState: updatedTree,
+        });
+      }
+
+      if (isNegativeMessage(trimmedMessage)) {
+        const clearedTree = {
+          ...treeState,
+          pendingProposals: [],
+          pendingSelectedProposalId: null,
+        };
+
+        await docRef.set({
+          ...clearedTree,
+          updatedAt: Date.now(),
+        });
+
+        return res.json({
+          replyText:
+            "Okay. Tell me what you want changed, and I will suggest a different study step before adding anything.",
+          newTreeState: clearedTree,
+        });
+      }
+
+      return res.json({
+        replyText:
+          "I still have suggested study plans waiting. First choose one by replying with its number or label, then reply with yes or no.",
+        newTreeState: treeState,
+      });
+    }
+
+    if (!isStudyRelatedMessage(trimmedMessage)) {
+      return res.json({
+        replyText:
+          "I only add study-related plans. Tell me the subject, topic, weakness, or exam you want help with, and I will suggest strategies before adding anything.",
+        newTreeState: treeState,
+      });
+    }
 
     const systemPrompt = `
 You are BitBuddies.
 
-The user is editing an existing study decision tree. Keep the current tree and
-adjust it incrementally based on the student's latest prompt.
+The user is editing a study decision tree.
+You do NOT add nodes directly. You only suggest 1 to 3 study plans based on the
+student's latest message, then ask for confirmation.
 
 Rules:
-- Do not regenerate the whole tree.
-- Prefer updating the most relevant existing node or adding 1 to 2 new options.
-- New options may be new top-level branches from "start" or new leaf nodes under an existing branch.
-- Never remove nodes.
-- Keep the full tree under ${MAX_TREE_NODES} total nodes.
-- Use "select_node" to highlight the best next option for the student.
+- If there is no committed node, every suggestion should sit directly under "start".
+- If there is a committed node, every new suggestion should extend that committed node as the next step in the path.
+- Suggest concrete study plans or strategies, not generic labels.
+- Only suggest plans if the student's message clearly describes a study need, subject, exam, weak topic, or request for study strategies.
+- Never propose generic filler like "choose a subject to study" or anything triggered by greetings alone.
+- Keep each label short.
+- Each assignment should clearly say what the student should do.
+- Each reason list should explain why that plan fits the student's message, persona, and recent weak areas.
+- Include a short "whyThisFits" sentence that explains the strongest reason this activity was suggested.
+- End the reply by asking whether the student wants you to add the suggestion(s) to the tree.
+- Do not claim that the nodes were already added.
 
 Return ONLY valid JSON:
 {
   "replyText": "...",
-  "operations": [ ... ]
-}
-
-Allowed operations:
-- update_node
-- add_node
-- select_node
-
-For add_node, use:
-{
-  "op": "add_node",
-  "newNode": {
-    "id": "short-lowercase-slug",
-    "label": "...",
-    "parentId": "existing-node-id",
-    "depth": 1,
-    "tag": "Branch or Assignment",
-    "assignment": "...",
-    "reason": ["...", "..."],
-    "impact": {
-      "mastery": 0,
-      "clarity": 0,
-      "confidence": 0,
-      "speed": 0,
-      "readiness": 0
+  "proposals": [
+    {
+      "id": "short-lowercase-slug",
+      "label": "...",
+      "assignment": "...",
+      "whyThisFits": "...",
+      "reason": ["...", "..."],
+      "impact": {
+        "mastery": 0,
+        "clarity": 0,
+        "confidence": 0,
+        "speed": 0,
+        "readiness": 0
+      }
     }
-  }
+  ]
 }
 
 Do not include any explanation outside JSON.
@@ -273,7 +613,12 @@ Do not include any explanation outside JSON.
           content: `
 Student prompt: ${message}
 
-Current selected node: ${treeState.selectedId || "teach"}
+Current selected node: ${treeState.selectedId || "none"}
+Committed path parent: ${treeState.committedNodeId || "start"}
+Student persona: ${studentContext?.personaLabel || "Unknown"}
+Persona summary: ${studentContext?.personaSummary || "Unavailable"}
+Weak topics: ${(studentContext?.weakTopics || []).join(", ") || "None recorded yet"}
+Tracked subjects: ${(studentContext?.subjectLabels || []).join(", ") || "Unknown"}
 
 Current tree:
 ${JSON.stringify(treeState.nodeMap)}
@@ -282,16 +627,66 @@ ${JSON.stringify(treeState.nodeMap)}
       ],
     });
 
-    const parsed = JSON.parse(aiResponse.output_text);
-    const updatedTree = applyOperations(treeState, parsed.operations);
+    const parsed = parseModelJson(aiResponse.output_text);
+    const proposedNodes = normalizeProposalList(
+      parsed.proposals,
+      treeState.nodeMap,
+      treeState.committedNodeId,
+    );
+    const duplicateSelections = proposedNodes
+      .map((proposal) => findDuplicateNodeId(treeState.nodeMap, proposal))
+      .filter(Boolean);
+
+    if (!proposedNodes.length && duplicateSelections.length) {
+      const selectedId = duplicateSelections[0];
+      const updatedTree = {
+        ...treeState,
+        selectedId,
+        pendingProposals: [],
+      };
+
+      await docRef.set({
+        ...updatedTree,
+        updatedAt: Date.now(),
+      });
+
+      return res.json({
+        replyText:
+          "That strategy is already on your first layer. I highlighted the closest existing node so you can compare it directly.",
+        newTreeState: updatedTree,
+      });
+    }
+
+    if (!proposedNodes.length) {
+      return res.json({
+        replyText:
+          "I need a bit more study detail before I suggest a plan. Tell me the subject, the weak topic, or what kind of strategy you want.",
+        newTreeState: {
+          ...treeState,
+          pendingProposals: [],
+          pendingSelectedProposalId: null,
+        },
+      });
+    }
+
+    const updatedTree = {
+      ...treeState,
+      pendingProposals: proposedNodes,
+      pendingSelectedProposalId: proposedNodes.length === 1 ? proposedNodes[0].id : null,
+    };
 
     await docRef.set({
       ...updatedTree,
       updatedAt: Date.now(),
     });
 
+    const fallbackReply =
+      proposedNodes.length === 1
+        ? `I suggest "${proposedNodes[0].label}". Reply with yes to add it to your study path, or no to reject it.`
+        : "I have a few study path suggestions ready. Choose one by number or label before I add anything.";
+
     res.json({
-      replyText: parsed.replyText,
+      replyText: parsed.replyText || fallbackReply,
       newTreeState: updatedTree,
     });
   } catch (error) {
@@ -301,13 +696,10 @@ ${JSON.stringify(treeState.nodeMap)}
 });
 
 function applyOperations(treeState, operations) {
-  const newNodeMap = { ...(treeState.nodeMap ?? {}) };
+  const baseTree = ensureTreeRoot(treeState);
+  const newNodeMap = { ...(baseTree.nodeMap ?? {}) };
   let nextSelectedId =
-    treeState.selectedId && newNodeMap[treeState.selectedId]
-      ? treeState.selectedId
-      : newNodeMap.teach
-      ? "teach"
-      : "start";
+    baseTree.selectedId && newNodeMap[baseTree.selectedId] ? baseTree.selectedId : null;
 
   for (const operation of Array.isArray(operations) ? operations : []) {
     if (!operation || typeof operation !== "object") continue;
@@ -330,8 +722,18 @@ function applyOperations(treeState, operations) {
         continue;
       }
 
-      const nextNode = normalizeNodeForInsert(operation.newNode, newNodeMap);
+      const nextNode = normalizeNodeForInsert(
+        operation.newNode,
+        newNodeMap,
+        baseTree.committedNodeId,
+      );
       if (!nextNode || newNodeMap[nextNode.id]) {
+        continue;
+      }
+
+      const duplicateNodeId = findDuplicateNodeId(newNodeMap, nextNode);
+      if (duplicateNodeId) {
+        nextSelectedId = duplicateNodeId;
         continue;
       }
 
@@ -344,14 +746,14 @@ function applyOperations(treeState, operations) {
     }
   }
 
-  const newPositions = ensureAllPositions(newNodeMap, treeState.positions);
+  const newPositions = ensureAllPositions(newNodeMap, baseTree.positions);
 
-  if (!newNodeMap[nextSelectedId]) {
-    nextSelectedId = newNodeMap.teach ? "teach" : "start";
+  if (!newNodeMap[nextSelectedId] || nextSelectedId === "start") {
+    nextSelectedId = Object.keys(newNodeMap).find((id) => id !== "start") ?? null;
   }
 
   return {
-    ...treeState,
+    ...baseTree,
     nodeMap: newNodeMap,
     positions: newPositions,
     selectedId: nextSelectedId,
