@@ -4,6 +4,69 @@ import RadarChart from "../components/RadarChart";
 import TopNav from "../components/TopNav";
 import { buildSubjectMasteryAxes } from "../data/academicProfile";
 
+function formatPercent(value) {
+  return `${Math.round((value || 0) * 100)}%`;
+}
+
+function buildPersonaDisplayMix(rankedPersonas) {
+  const normalized = rankedPersonas.map((persona) => {
+    const exactPercent = (persona.matchScore || 0) * 100;
+
+    return {
+      ...persona,
+      displayPercent: Math.floor(exactPercent),
+      remainder: exactPercent - Math.floor(exactPercent),
+    };
+  });
+
+  const remainingPoints = 100 - normalized.reduce((sum, persona) => sum + persona.displayPercent, 0);
+
+  normalized
+    .slice()
+    .sort((left, right) => {
+      if (right.remainder !== left.remainder) {
+        return right.remainder - left.remainder;
+      }
+
+      if (right.matchScore !== left.matchScore) {
+        return right.matchScore - left.matchScore;
+      }
+
+      return left.label.localeCompare(right.label);
+    })
+    .slice(0, remainingPoints)
+    .forEach((persona) => {
+      const originalPersona = normalized.find((item) => item.id === persona.id);
+
+      if (originalPersona) {
+        originalPersona.displayPercent += 1;
+      }
+    });
+
+  return normalized
+    .map(({ remainder, ...persona }) => persona)
+    .sort((left, right) => {
+      if (right.displayPercent !== left.displayPercent) {
+        return right.displayPercent - left.displayPercent;
+      }
+
+      if (right.matchScore !== left.matchScore) {
+        return right.matchScore - left.matchScore;
+      }
+
+      return left.label.localeCompare(right.label);
+    });
+}
+
+function joinInsight(items, fallback) {
+  if (!items?.length) {
+    return fallback;
+  }
+
+  return items.map((item) => `${item.label} (${item.reason})`).join(" • ");
+}
+
+export default function HomePage({ onSignOut, onOpenPractice, onOpenToDo, user }) {
 export default function HomePage({
   onSignOut,
   onOpenPractice,
@@ -13,6 +76,7 @@ export default function HomePage({
   user,
 }) {
   const primaryPersona = user.persona.primary;
+  const rankedPersonas = buildPersonaDisplayMix(user.persona.ranked);
   const radar = user.learningRadar;
   const features = radar.features || {};
   const subjectMastery = user.subjectMastery;
@@ -95,6 +159,15 @@ export default function HomePage({
               summaryText={primaryPersona.summary}
             />
           </div>
+        </div>
+
+        <div className="persona-scoreboard">
+          {rankedPersonas.map((persona) => (
+            <div key={persona.id} className="persona-chip">
+              <span>{persona.label}</span>
+              <strong>{persona.displayPercent}%</strong>
+            </div>
+          ))}
         </div>
       </section>
 
