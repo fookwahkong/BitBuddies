@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from "react";
 import TopNav from "../components/TopNav";
 import { buildPracticeAnalysis } from "../data/practiceAnalysis";
+import { mapToAllowedSubjectLabel, normalizeSubjectText } from "../data/subjectCatalog";
+
+const PRACTICE_DETECTION_ENDPOINT = "http://localhost:3001/api/detect-practice-subject";
 
 function buildDefaultMetadata(subjects = [], file = null) {
-  const fallbackSubject = subjects[0] || null;
-
   return {
-    subjectId: fallbackSubject?.id || "",
-    detectedTopic: fallbackSubject?.label ? `${fallbackSubject.label} Core Skills` : "General Practice",
+    subjectId: "",
+    detectedTopic: "General Practice",
     questionType: file?.type?.includes("pdf") ? "Worksheet Upload" : "Question Snapshot",
     difficulty: 2,
   };
@@ -25,10 +26,41 @@ function formatFileSize(size) {
   return `${Math.max(1, Math.round(size / 1024))} KB`;
 }
 
+function matchDetectedSubjectId(subjects, subjectLabel) {
+  const mappedLabel = mapToAllowedSubjectLabel(subjectLabel, subjects.map((subject) => subject.label));
+  const normalizedLabel = normalizeSubjectText(mappedLabel || subjectLabel);
+  if (!normalizedLabel) {
+    return "";
+  }
+
+  const exactMatch = subjects.find((subject) => normalizeSubjectText(subject.label) === normalizedLabel);
+  if (exactMatch) {
+    return exactMatch.id;
+  }
+
+  const fuzzyMatch = subjects.find((subject) => {
+    const normalizedSubject = normalizeSubjectText(subject.label);
+    return normalizedSubject.includes(normalizedLabel) || normalizedLabel.includes(normalizedSubject);
+  });
+
+  return fuzzyMatch?.id || "";
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("file_read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function PracticePage({
   user,
   onBackHome,
   onLogLearningAction,
+  onSavePracticeAnalysis,
   onOpenPracticeAnalysis,
   onOpenToDo,
   onOpenJudge,
@@ -48,11 +80,13 @@ export default function PracticePage({
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [detectionResult, setDetectionResult] = useState(null);
 
   const hasUploadedFile = Boolean(selectedFile);
-  const selectedSubject = subjects.find((subject) => subject.id === metadata.subjectId) || subjects[0] || null;
+  const selectedSubject = subjects.find((subject) => subject.id === metadata.subjectId) || null;
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const file = event.target.files?.[0] || null;
 
     if (!file) {
@@ -61,8 +95,60 @@ export default function PracticePage({
 
     setSelectedFile(file);
     setMetadata(buildDefaultMetadata(subjects, file));
-    setStatus("File received. Confirm the extracted details before logging the attempt.");
+    setDetectionResult(null);
+    setStatus("Analyzing the uploaded file to detect the subject and topic.");
     setError("");
+
+    try {
+      setDetecting(true);
+      const shouldSendFileData = file.type.startsWith("image/") || file.type.includes("pdf");
+      const fileDataUrl = shouldSendFileData ? await readFileAsDataUrl(file) : "";
+      const response = await fetch(PRACTICE_DETECTION_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type || "",
+          fileDataUrl,
+          allowedSubjects: subjects.map((subject) => subject.label),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("practice_detection_failed");
+      }
+
+      const result = await response.json();
+      const nextSubjectId = matchDetectedSubjectId(subjects, result.subjectLabel);
+      const defaultMetadata = buildDefaultMetadata(subjects, file);
+
+      const resolvedSubjectId = nextSubjectId && result.subjectLabel ? nextSubjectId : "";
+
+      setMetadata({
+        ...defaultMetadata,
+        subjectId: resolvedSubjectId,
+        detectedTopic: String(result.detectedTopic || defaultMetadata.detectedTopic).trim() || defaultMetadata.detectedTopic,
+      });
+      setDetectionResult({
+        subjectLabel: String(result.subjectLabel || "").trim() || "Unknown subject",
+        detectedTopic: String(result.detectedTopic || "").trim() || defaultMetadata.detectedTopic,
+        confidence: String(result.confidence || "medium").trim() || "medium",
+        confidenceNote:
+          String(result.confidenceNote || "").trim() ||
+          "Subject detected from the uploaded file. Please confirm before logging.",
+        detectionMode: String(result.detectionMode || "fallback").trim() || "fallback",
+        debug: result.debug || null,
+      });
+      setStatus("");
+    } catch (detectionError) {
+      console.error("Practice detection error:", detectionError);
+      setDetectionResult(null);
+      setStatus("Auto-detection is unavailable for this file right now. Please confirm the subject manually.");
+    } finally {
+      setDetecting(false);
+    }
   }
 
   function handleMetadataChange(event) {
@@ -85,6 +171,7 @@ export default function PracticePage({
   function handleResetUpload(nextStatus = "") {
     setSelectedFile(null);
     setMetadata(buildDefaultMetadata(subjects));
+    setDetectionResult(null);
     setAttempt({
       questionId: "",
       isCorrect: "correct",
@@ -140,9 +227,13 @@ export default function PracticePage({
         action,
         uploadedFile: selectedFile,
       });
+      const analysisSession = onSavePracticeAnalysis
+        ? await onSavePracticeAnalysis(analysis, nextSession)
+        : nextSession;
 
       handleResetUpload();
       onOpenPracticeAnalysis(analysis);
+      return analysisSession;
     } catch (submissionError) {
       console.error("Practice logging error:", submissionError);
       setError("The attempt could not be logged. Please try again.");
@@ -185,6 +276,7 @@ export default function PracticePage({
               type="file"
               accept=".pdf,image/*"
               onChange={handleFileChange}
+              disabled={detecting}
             />
 
             {status ? <p className="hero-text practice-status-text">{status}</p> : null}
@@ -221,6 +313,22 @@ export default function PracticePage({
                 <li>{((selectedSubject?.normalizedWeight || 0) * 100).toFixed(0)}% impact weight</li>
               </ul>
             </div>
+
+            <div className="explain-card">
+              <h3>Detection summary</h3>
+              <ul>
+                <li>{detectionResult?.subjectLabel || "Awaiting manual confirmation"}</li>
+                <li>{detectionResult?.detectedTopic || "Topic will appear after upload analysis"}</li>
+                <li>
+                  {detectionResult
+                    ? `${detectionResult.confidence} confidence via ${detectionResult.detectionMode.replace(/_/g, " ")}`
+                    : "No auto-detection result yet"}
+                </li>
+                {detectionResult?.debug?.readableTextChars !== undefined ? (
+                  <li>{`${detectionResult.debug.readableTextChars} readable PDF text characters found`}</li>
+                ) : null}
+              </ul>
+            </div>
           </div>
 
           <form className="auth-form" onSubmit={handleSubmit}>
@@ -228,6 +336,7 @@ export default function PracticePage({
               <label className="input-group">
                 <span>Detected subject</span>
                 <select name="subjectId" value={metadata.subjectId} onChange={handleMetadataChange}>
+                  <option value="">Select subject manually</option>
                   {subjects.map((subject) => (
                     <option key={subject.id} value={subject.id}>
                       {subject.label}
@@ -332,8 +441,8 @@ export default function PracticePage({
               <button className="secondary-button" type="button" onClick={onBackHome}>
                 Back to dashboard
               </button>
-              <button className="primary-button" type="submit" disabled={loading || !subjects.length}>
-                {loading ? "Logging attempt..." : "Log practice attempt"}
+              <button className="primary-button" type="submit" disabled={loading || detecting || !subjects.length}>
+                {loading ? "Logging attempt..." : detecting ? "Analyzing upload..." : "Log practice attempt"}
               </button>
             </div>
           </form>

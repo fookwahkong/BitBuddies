@@ -6,6 +6,7 @@ export default function PracticeAnalysisPage({
   analysis,
   onBackHome,
   onOpenPractice,
+  onScanAnotherDocument,
   onOpenToDo,
   onOpenJudge,
   onOpenPersonas,
@@ -121,8 +122,11 @@ export default function PracticeAnalysisPage({
         </div>
 
         <div className="wizard-actions wizard-actions-spread" style={{ marginTop: "20px" }}>
-          <button className="secondary-button" type="button" onClick={onOpenPractice}>
-            Log another practice file
+          <button className="secondary-button" type="button" onClick={onScanAnotherDocument}>
+            Scan another document
+          </button>
+          <button className="secondary-button" type="button" onClick={onOpenToDo}>
+            Go to ToDo
           </button>
           <button className="primary-button" type="button" onClick={onBackHome}>
             Return to homepage

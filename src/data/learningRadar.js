@@ -951,6 +951,7 @@ export function buildSessionFromStudentRecord(studentRecord = {}) {
     weakTopicSet: studentRecord?.weakTopicSet || learningRadar?.features?.weakTopicSet || [],
     topicStats: studentRecord?.topicStats || learningRadar?.features?.topicStats || {},
     learningRadar,
+    latestPracticeAnalysis: studentRecord?.latestPracticeAnalysis || null,
     studyPlanTodos: Array.isArray(studentRecord?.studyPlanTodos) ? studentRecord.studyPlanTodos : [],
     learningEvents: studentRecord.learningEvents || [],
   };

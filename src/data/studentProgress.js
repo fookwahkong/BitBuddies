@@ -416,6 +416,37 @@ export async function recordLearningAction(student, action) {
   });
 }
 
+export async function saveLatestPracticeAnalysis(student, analysis) {
+  if (!student || !analysis) {
+    return student;
+  }
+
+  const docId = await resolveStudentDocId(student);
+  const nextAnalysis = {
+    title: analysis.title || "Practice document analysis",
+    summary: analysis.summary || "",
+    documentSignals: Array.isArray(analysis.documentSignals) ? analysis.documentSignals.slice(0, 6) : [],
+    recommendedActions: Array.isArray(analysis.recommendedActions) ? analysis.recommendedActions.slice(0, 4) : [],
+    personaPeerInsights: Array.isArray(analysis.personaPeerInsights) ? analysis.personaPeerInsights.slice(0, 4) : [],
+    personalHistoryRecommendations: Array.isArray(analysis.personalHistoryRecommendations)
+      ? analysis.personalHistoryRecommendations.slice(0, 4)
+      : [],
+    evidence: Array.isArray(analysis.evidence) ? analysis.evidence.slice(0, 6) : [],
+    updatedAt: new Date().toISOString(),
+  };
+
+  await updateDoc(doc(db, "students", docId), {
+    latestPracticeAnalysis: nextAnalysis,
+    updatedAt: nextAnalysis.updatedAt,
+  });
+
+  return buildSessionFromStudentRecord({
+    ...student,
+    docId,
+    latestPracticeAnalysis: nextAnalysis,
+  });
+}
+
 export async function seedDemoLearningJourney(student) {
   let nextSession = student;
   const seedActions = createSeedActionPlan();

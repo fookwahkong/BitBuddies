@@ -3,7 +3,9 @@ import cors from "cors";
 import dotenv from "dotenv";
 import OpenAI from "openai";
 import admin from "firebase-admin";
+import zlib from "node:zlib";
 import serviceAccount from "./serviceAccountKey.json" with { type: "json" };
+import { detectSubjectFromCatalog, mapToAllowedSubjectLabel } from "./src/data/subjectCatalog.js";
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -14,7 +16,7 @@ dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "12mb" }));
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -155,6 +157,278 @@ function normalizeImpact(impact) {
     acc[key] = Number.isFinite(nextValue) ? clamp(nextValue, -25, 25) : 0;
     return acc;
   }, {});
+}
+
+function detectSubjectFromText(text, allowedSubjects = []) {
+  return detectSubjectFromCatalog(text, allowedSubjects);
+}
+
+function decodeDataUrlToBuffer(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:.*?;base64,(.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    return Buffer.from(match[1], "base64");
+  } catch {
+    return null;
+  }
+}
+
+function decodePdfLiteralString(value) {
+  return value
+    .replace(/\\([\\()])/g, "$1")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .replace(/\\b/g, "\b")
+    .replace(/\\f/g, "\f")
+    .replace(/\\([0-7]{1,3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+}
+
+function extractReadablePdfTextFromStream(streamText) {
+  const literalMatches = Array.from(streamText.matchAll(/\(((?:\\.|[^\\)])+)\)/g))
+    .map((match) => decodePdfLiteralString(match[1]))
+    .join(" ");
+  const hexMatches = Array.from(streamText.matchAll(/<([0-9A-Fa-f\s]{8,})>/g))
+    .map((match) => {
+      const hex = match[1].replace(/\s+/g, "");
+      if (!hex || hex.length % 2 !== 0) {
+        return "";
+      }
+
+      try {
+        return Buffer.from(hex, "hex").toString("utf8");
+      } catch {
+        return "";
+      }
+    })
+    .join(" ");
+
+  return `${literalMatches} ${hexMatches}`.replace(/\s+/g, " ").trim();
+}
+
+function extractTextFromPdfBuffer(buffer) {
+  const binary = buffer.toString("latin1");
+  const textChunks = [];
+  const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let match = streamRegex.exec(binary);
+
+  while (match) {
+    const rawStream = match[1];
+    const rawBuffer = Buffer.from(rawStream, "latin1");
+    const candidates = [rawBuffer];
+
+    try {
+      candidates.unshift(zlib.inflateSync(rawBuffer));
+    } catch {
+      // Ignore compressed streams that do not inflate cleanly.
+    }
+
+    for (const candidate of candidates) {
+      const extracted = extractReadablePdfTextFromStream(candidate.toString("latin1"));
+      if (extracted) {
+        textChunks.push(extracted);
+      }
+    }
+
+    match = streamRegex.exec(binary);
+  }
+
+  return textChunks.join(" ").replace(/\s+/g, " ").trim();
+}
+
+async function classifyPracticeTextWithAi({ fileName, fileType, extractedText, allowedSubjects = [] }) {
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: [
+      {
+        role: "system",
+        content: `
+You classify uploaded study documents.
+Choose the most likely subject and a short topic from the extracted text.
+If the text is ambiguous, return an empty subjectLabel and low confidence.
+Prefer one of these tracked subjects when supported by evidence: ${allowedSubjects.join(", ") || "none provided"}.
+
+Return ONLY valid JSON:
+{
+  "subjectLabel": "",
+  "detectedTopic": "",
+  "confidence": "high|medium|low",
+  "confidenceNote": ""
+}
+`,
+      },
+      {
+        role: "user",
+        content: `Filename: ${fileName}\nFile type: ${fileType}\n\nExtracted text:\n${String(extractedText || "").slice(0, 7000)}`,
+      },
+    ],
+    temperature: 0.1,
+  });
+
+  const parsed = parseModelJson(response.output_text);
+
+  return {
+    subjectLabel: mapToAllowedSubjectLabel(String(parsed.subjectLabel ?? "").trim(), allowedSubjects)
+      || String(parsed.subjectLabel ?? "").trim(),
+    detectedTopic: String(parsed.detectedTopic ?? "General Practice").trim() || "General Practice",
+    confidence: ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "low",
+    confidenceNote:
+      String(parsed.confidenceNote ?? "").trim()
+      || "Detected from extracted document text. Please confirm before logging.",
+  };
+}
+
+async function detectPracticeDocument({ fileName, fileType, fileDataUrl, allowedSubjects = [] }) {
+  const filenameDetection = detectSubjectFromText(fileName, allowedSubjects);
+  const debug = {
+    fileName,
+    fileType,
+    allowedSubjects,
+    readableTextChars: 0,
+    filenameFallbackSubject: filenameDetection.subjectLabel || "",
+  };
+
+  if (fileType?.includes("pdf") && fileDataUrl) {
+    const pdfBuffer = decodeDataUrlToBuffer(fileDataUrl);
+    const extractedText = pdfBuffer ? extractTextFromPdfBuffer(pdfBuffer) : "";
+    debug.readableTextChars = extractedText.length;
+
+    if (extractedText) {
+      const keywordDetection = detectSubjectFromText(`${fileName} ${extractedText}`, allowedSubjects);
+      const aiDetection = await classifyPracticeTextWithAi({
+        fileName,
+        fileType,
+        extractedText,
+        allowedSubjects,
+      });
+      const normalizedKeywordSubject = canonicalizeText(keywordDetection.subjectLabel);
+      const normalizedAiSubject = canonicalizeText(aiDetection.subjectLabel);
+      const hasKeywordSubject = Boolean(normalizedKeywordSubject);
+      const hasAiSubject = Boolean(normalizedAiSubject);
+      const detectionsAgree =
+        hasKeywordSubject &&
+        hasAiSubject &&
+        normalizedKeywordSubject === normalizedAiSubject;
+      let resolvedDetection = keywordDetection;
+      let detectionMode = "pdf_text_keywords";
+
+      if (!hasKeywordSubject && hasAiSubject) {
+        resolvedDetection = aiDetection;
+        detectionMode = "pdf_text_ai_fallback";
+      } else if (detectionsAgree) {
+        resolvedDetection = {
+          ...keywordDetection,
+          detectedTopic: aiDetection.detectedTopic || keywordDetection.detectedTopic,
+          confidence: "high",
+          confidenceNote: "Document text and AI classification agree on the subject. Please confirm before logging.",
+        };
+        detectionMode = "pdf_text_consensus";
+      } else if (hasKeywordSubject && hasAiSubject && !detectionsAgree) {
+        resolvedDetection = {
+          ...keywordDetection,
+          confidence: "low",
+          confidenceNote:
+            `Conflicting subject signals detected. Text classification suggests ${keywordDetection.subjectLabel}, while AI suggests ${aiDetection.subjectLabel}. Please confirm manually.`,
+        };
+        detectionMode = "pdf_text_conflict";
+      }
+
+      const result = {
+        ...resolvedDetection,
+        detectionMode,
+        debug: {
+          ...debug,
+          keywordSubject: keywordDetection.subjectLabel || "",
+          aiSubject: aiDetection.subjectLabel || "",
+          finalSubject: resolvedDetection.subjectLabel || "",
+          textVsAiAgreement: detectionsAgree,
+        },
+      };
+      console.log("[practice-detect]", JSON.stringify(result.debug));
+
+      return {
+        ...result,
+      };
+    }
+
+    const result = {
+      ...filenameDetection,
+      confidence: "low",
+      confidenceNote: "This PDF did not expose readable text automatically. Please confirm the subject manually.",
+      detectionMode: "pdf_unreadable_fallback",
+      debug,
+    };
+    console.log("[practice-detect]", JSON.stringify(result.debug));
+    return result;
+  }
+
+  if (!fileType?.startsWith("image/") || !fileDataUrl) {
+    const result = {
+      ...filenameDetection,
+      detectionMode: "filename_fallback",
+      debug,
+    };
+    console.log("[practice-detect]", JSON.stringify(result.debug));
+    return result;
+  }
+
+  const systemPrompt = `
+You classify uploaded study images.
+Choose the most likely subject and a short topic.
+If possible, prefer one of these tracked subjects: ${allowedSubjects.join(", ") || "none provided"}.
+If the image is too ambiguous, return an empty subjectLabel and low confidence instead of guessing.
+
+Return ONLY valid JSON:
+{
+  "subjectLabel": "",
+  "detectedTopic": "",
+  "confidence": "high|medium|low",
+  "confidenceNote": ""
+}
+`;
+
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: `Filename: ${fileName}\nFile type: ${fileType}`,
+          },
+          {
+            type: "input_image",
+            image_url: fileDataUrl,
+          },
+        ],
+      },
+    ],
+    temperature: 0.1,
+  });
+
+  const parsed = parseModelJson(response.output_text);
+
+  const result = {
+    subjectLabel: mapToAllowedSubjectLabel(String(parsed.subjectLabel ?? "").trim(), allowedSubjects)
+      || String(parsed.subjectLabel ?? "").trim(),
+    detectedTopic: String(parsed.detectedTopic ?? "General Practice").trim() || "General Practice",
+    confidence: ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "medium",
+    confidenceNote:
+      String(parsed.confidenceNote ?? "").trim()
+      || "Detected from the uploaded image. Please confirm before logging.",
+    detectionMode: "ai_vision",
+    debug,
+  };
+  console.log("[practice-detect]", JSON.stringify(result.debug));
+  return result;
 }
 
 function getAutoPosition(nodeMap, positions, nodeId) {
@@ -426,6 +700,24 @@ Use the provided context if available.
   }
 });
 
+app.post("/api/detect-practice-subject", async (req, res) => {
+  try {
+    const { fileName, fileType, fileDataUrl, allowedSubjects } = req.body || {};
+
+    const detection = await detectPracticeDocument({
+      fileName: String(fileName || ""),
+      fileType: String(fileType || ""),
+      fileDataUrl: typeof fileDataUrl === "string" ? fileDataUrl : "",
+      allowedSubjects: Array.isArray(allowedSubjects) ? allowedSubjects : [],
+    });
+
+    res.json(detection);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "practice_detection_failed" });
+  }
+});
+
 async function fetchStudentContext(userId) {
   const snapshot = await db.collection("students").doc(userId).get();
 
@@ -442,6 +734,7 @@ async function fetchStudentContext(userId) {
     subjectLabels: Array.isArray(student?.academicProfile?.subjects)
       ? student.academicProfile.subjects.map((subject) => subject.label).slice(0, 6)
       : [],
+    latestPracticeAnalysis: student?.latestPracticeAnalysis || null,
   };
 }
 
@@ -574,7 +867,7 @@ Rules:
 - Never propose generic filler like "choose a subject to study" or anything triggered by greetings alone.
 - Keep each label short.
 - Each assignment should clearly say what the student should do.
-- Each reason list should explain why that plan fits the student's message, persona, and recent weak areas.
+- Each reason list should explain why that plan fits the student's message, persona, recent weak areas, and the latest practice analysis if available.
 - Include a short "whyThisFits" sentence that explains the strongest reason this activity was suggested.
 - End the reply by asking whether the student wants you to add the suggestion(s) to the tree.
 - Do not claim that the nodes were already added.
@@ -619,6 +912,11 @@ Student persona: ${studentContext?.personaLabel || "Unknown"}
 Persona summary: ${studentContext?.personaSummary || "Unavailable"}
 Weak topics: ${(studentContext?.weakTopics || []).join(", ") || "None recorded yet"}
 Tracked subjects: ${(studentContext?.subjectLabels || []).join(", ") || "Unknown"}
+Latest practice analysis summary: ${studentContext?.latestPracticeAnalysis?.summary || "None available"}
+Latest practice document signals: ${(studentContext?.latestPracticeAnalysis?.documentSignals || []).join(" | ") || "None available"}
+Latest practice recommended actions: ${(studentContext?.latestPracticeAnalysis?.recommendedActions || []).join(" | ") || "None available"}
+Latest practice persona insights: ${(studentContext?.latestPracticeAnalysis?.personaPeerInsights || []).join(" | ") || "None available"}
+Latest practice history recommendations: ${(studentContext?.latestPracticeAnalysis?.personalHistoryRecommendations || []).join(" | ") || "None available"}
 
 Current tree:
 ${JSON.stringify(treeState.nodeMap)}

@@ -7,7 +7,7 @@ import PracticeAnalysisPage from "./pages/PracticeAnalysisPage";
 import JudgePage from "./pages/JudgePage";
 import PersonasPage from "./pages/PersonasPage";
 import ToDoPage from "./pages/ToDoPage";
-import { recordLearningAction, seedDemoLearningJourney } from "./data/studentProgress";
+import { recordLearningAction, saveLatestPracticeAnalysis, seedDemoLearningJourney } from "./data/studentProgress";
 import {
   commitStudyPlanTodo,
   removeStudyPlanTodosByNodeIds,
@@ -18,9 +18,11 @@ export default function App() {
   const [screen, setScreen] = useState("landing");
   const [session, setSession] = useState(null);
   const [practiceAnalysis, setPracticeAnalysis] = useState(null);
+  const activePracticeAnalysis = practiceAnalysis || session?.latestPracticeAnalysis || null;
 
   function handleAuthComplete(userProfile) {
     setSession(userProfile);
+    setPracticeAnalysis(userProfile?.latestPracticeAnalysis || null);
     setScreen("home");
   }
 
@@ -35,12 +37,37 @@ export default function App() {
     setScreen("practice-analysis");
   }
 
+  function handleOpenPracticeHome() {
+    if (activePracticeAnalysis) {
+      setPracticeAnalysis(activePracticeAnalysis);
+      setScreen("practice-analysis");
+      return;
+    }
+
+    setScreen("practice");
+  }
+
+  function handleOpenPracticeUpload() {
+    setScreen("practice");
+  }
+
   async function handleLearningAction(action) {
     if (!session) {
       return;
     }
 
     const updatedSession = await recordLearningAction(session, action);
+    setSession(updatedSession);
+    return updatedSession;
+  }
+
+  async function handleSavePracticeAnalysis(analysis, baseSession = null) {
+    const activeSession = baseSession || session;
+    if (!activeSession || !analysis) {
+      return activeSession;
+    }
+
+    const updatedSession = await saveLatestPracticeAnalysis(activeSession, analysis);
     setSession(updatedSession);
     return updatedSession;
   }
@@ -108,7 +135,7 @@ export default function App() {
         <HomePage
           user={session}
           onSignOut={handleSignOut}
-          onOpenPractice={() => setScreen("practice")}
+          onOpenPractice={handleOpenPracticeHome}
           onOpenToDo={() => setScreen("todo")}
           onOpenJudge={() => setScreen("judge")}
           onOpenPersonas={() => setScreen("personas")}
@@ -121,6 +148,7 @@ export default function App() {
           user={session}
           onBackHome={() => setScreen("home")}
           onLogLearningAction={handleLearningAction}
+          onSavePracticeAnalysis={handleSavePracticeAnalysis}
           onOpenPracticeAnalysis={handleOpenPracticeAnalysis}
           onOpenToDo={() => setScreen("todo")}
           onOpenJudge={() => setScreen("judge")}
@@ -132,9 +160,10 @@ export default function App() {
       {screen === "practice-analysis" && session ? (
         <PracticeAnalysisPage
           user={session}
-          analysis={practiceAnalysis}
+          analysis={activePracticeAnalysis}
           onBackHome={() => setScreen("home")}
-          onOpenPractice={() => setScreen("practice")}
+          onOpenPractice={handleOpenPracticeHome}
+          onScanAnotherDocument={handleOpenPracticeUpload}
           onOpenToDo={() => setScreen("todo")}
           onOpenJudge={() => setScreen("judge")}
           onOpenPersonas={() => setScreen("personas")}
@@ -146,7 +175,7 @@ export default function App() {
         <JudgePage
           user={session}
           onBackHome={() => setScreen("home")}
-          onOpenPractice={() => setScreen("practice")}
+          onOpenPractice={handleOpenPracticeHome}
           onOpenToDo={() => setScreen("todo")}
           onOpenPersonas={() => setScreen("personas")}
           onSignOut={handleSignOut}
@@ -158,7 +187,7 @@ export default function App() {
         <PersonasPage
           user={session}
           onBackHome={() => setScreen("home")}
-          onOpenPractice={() => setScreen("practice")}
+          onOpenPractice={handleOpenPracticeHome}
           onOpenToDo={() => setScreen("todo")}
           onOpenJudge={() => setScreen("judge")}
           onSignOut={handleSignOut}
@@ -170,7 +199,7 @@ export default function App() {
           user={session}
           onLogLearningAction={handleLearningAction}
           onBackHome={() => setScreen("home")}
-          onOpenPractice={() => setScreen("practice")}
+          onOpenPractice={handleOpenPracticeHome}
           onOpenJudge={() => setScreen("judge")}
           onOpenPersonas={() => setScreen("personas")}
           onSignOut={handleSignOut}
