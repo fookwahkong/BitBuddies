@@ -29,6 +29,8 @@ export default function PracticePage({
   onBackHome,
   onLogLearningAction,
   onOpenToDo,
+  onOpenJudge,
+  onOpenPersonas,
   onSignOut,
 }) {
   const subjects = useMemo(() => user?.academicProfile?.subjects || [], [user]);
@@ -144,6 +146,8 @@ export default function PracticePage({
         user={user}
         onOpenPractice={() => {}}
         onOpenToDo={onOpenToDo}
+        onOpenJudge={onOpenJudge}
+        onOpenPersonas={onOpenPersonas}
         onGoHome={onBackHome}
         onSignOut={onSignOut}
         activePage="practice"

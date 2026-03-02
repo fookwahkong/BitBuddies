@@ -266,39 +266,94 @@ function normalizeStoredMatchScores(scores, legacyTotals) {
   }, createEmptyPersonaScores());
 }
 
-export function computeBehaviorPersonaScores(features) {
-  const recentBurstRatio = safeRatio(features.eventsLast48h, features.eventsLast14d);
+function buildTopicStats(events) {
+  const attemptEvents = events.filter((event) => event.eventType === "attempt" || event.eventType === "retry");
+
+  return attemptEvents.reduce((stats, event) => {
+    const topicId = event.topicId || "general";
+    const current = stats[topicId] || {
+      topicId,
+      attempts: 0,
+      correct: 0,
+      accuracy: 0,
+    };
+
+    current.attempts += 1;
+
+    if (event.isCorrect === true) {
+      current.correct += 1;
+    }
+
+    current.accuracy = roundTo(safeRatio(current.correct, current.attempts), 4);
+    stats[topicId] = current;
+    return stats;
+  }, {});
+}
+
+function buildWeakTopicSet(topicStats) {
+  const topicList = Object.values(topicStats);
+  const weakCandidates = topicList
+    .filter((topic) => topic.attempts >= 2 && topic.accuracy < 0.6)
+    .sort((left, right) => left.accuracy - right.accuracy);
+
+  if (weakCandidates.length) {
+    return weakCandidates.slice(0, 3).map((topic) => topic.topicId);
+  }
+
+  return topicList
+    .filter((topic) => topic.attempts >= 1)
+    .sort((left, right) => left.accuracy - right.accuracy)
+    .slice(0, 2)
+    .map((topic) => topic.topicId);
+}
+
+export function computeBehaviorPersonaScores(features, fallbackScores = null) {
   const rawScores = {
     crammer: clamp01(
-      ((1 - normalizeCount(features.activeDaysLast14, 6)) * 0.4)
-      + (normalizeCount(features.maxGapDaysLast14, 7) * 0.3)
-      + (recentBurstRatio * 0.3),
-    ),
-    comfort: clamp01(
-      (normalizeCount(features.activeDaysLast14, 10) * 0.35)
-      + ((1 - (features.hardRatio || 0)) * 0.4)
-      + ((1 - normalizeCount(features.avgDifficulty, 3)) * 0.25),
-    ),
-    avoider: clamp01(
-      ((features.topTopicShare || 0) * 0.45)
-      + ((1 - normalizeCount(features.topicsTouchedLast7, 6)) * 0.35)
-      + ((1 - (features.hardRatio || 0)) * 0.2),
-    ),
-    perfectionist: clamp01(
-      ((features.reviewRatio || 0) * 0.35)
-      + ((features.pctTooLong || 0) * 0.4)
-      + (normalizeCount(features.timePerQuestionNormalizedAvg, 1.6) * 0.25),
+      (features.activeDaysLast14 <= 4 ? 0.3 : 0)
+      + (features.maxGapDaysLast14 >= 4 ? 0.25 : 0)
+      + ((features.recentBurstRatio || 0) >= 0.45 ? 0.25 : 0)
+      + (features.medianSessionDuration >= 25 ? 0.1 : 0)
+      + (features.medianEventsPerSession >= 5 ? 0.1 : 0)
     ),
     sprinter: clamp01(
-      ((1 - normalizeCount(features.medianSessionDuration, 20)) * 0.4)
-      + ((1 - normalizeCount(features.medianEventsPerSession, 6)) * 0.35)
-      + (normalizeCount(features.eventsLast48h, 8) * 0.25),
+      (features.medianSessionDuration <= 12 ? 0.25 : 0)
+      + (features.medianEventsPerSession <= 3 ? 0.25 : 0)
+      + (features.topicsTouchedLast7 >= 4 ? 0.15 : 0)
+      + ((features.topTopicShare || 0) <= 0.35 ? 0.15 : 0)
+      + ((features.reviewRatio || 0) <= 0.15 ? 0.1 : 0)
+      + ((features.topicSwitchRate || 0) >= 0.5 ? 0.1 : 0)
+    ),
+    comfort: clamp01(
+      (features.activeDaysLast14 >= 6 ? 0.2 : 0)
+      + ((features.hardRatio || 0) <= 0.2 ? 0.3 : 0)
+      + ((features.avgDifficulty || 0) <= 1.7 ? 0.2 : 0)
+      + ((features.timePerQuestionNormalizedAvg || 0) <= 1 ? 0.15 : 0)
+      + ((features.pctTooLong || 0) <= 0.2 ? 0.15 : 0)
+    ),
+    perfectionist: clamp01(
+      ((features.timePerQuestionNormalizedAvg || 0) >= 1.25 ? 0.3 : 0)
+      + ((features.pctTooLong || 0) >= 0.35 ? 0.25 : 0)
+      + ((features.reviewRatio || 0) >= 0.25 ? 0.2 : 0)
+      + ((features.retryAfterWrongRate || 0) >= 0.5 ? 0.1 : 0)
+      + (features.medianSessionDuration >= 20 ? 0.15 : 0)
+    ),
+    avoider: clamp01(
+      (features.topicsTouchedLast7 <= 2 ? 0.15 : 0)
+      + ((features.topTopicShare || 0) >= 0.6 ? 0.2 : 0)
+      + ((features.hardRatio || 0) <= 0.25 ? 0.1 : 0)
+      + ((features.weakTopicAttemptShare || 0) <= 0.15 ? 0.35 : 0)
+      + ((features.weakTopicCoverage || 0) <= 0.25 ? 0.2 : 0)
     ),
   };
 
   const total = Object.values(rawScores).reduce((sum, value) => sum + value, 0);
 
   if (!total) {
+    if (fallbackScores) {
+      return fallbackScores;
+    }
+
     return Object.keys(personaCatalog).reduce((result, personaId) => {
       result[personaId] = roundTo(1 / Object.keys(personaCatalog).length, 4);
       return result;
@@ -385,8 +440,12 @@ export function normalizeLearningEvents(events = []) {
   return events.map(normalizeEvent).sort((left, right) => left.timestamp - right.timestamp);
 }
 
-export function computeLearningFeatures(events = [], referenceTime = Date.now()) {
+export function computeLearningFeatures(events = [], referenceTime = Date.now(), options = {}) {
   const normalizedEvents = normalizeLearningEvents(events);
+  const weakTopicWindowMs = options.weakTopicWindowMs || 28 * DAY_IN_MS;
+  const eventsForWeakTopics = normalizedEvents.filter((event) => referenceTime - event.timestamp <= weakTopicWindowMs);
+  const topicStats = buildTopicStats(eventsForWeakTopics);
+  const weakTopicSet = options.weakTopicSet || buildWeakTopicSet(topicStats);
   const eventsLast14d = normalizedEvents.filter((event) => referenceTime - event.timestamp <= 14 * DAY_IN_MS);
   const eventsLast7d = normalizedEvents.filter((event) => referenceTime - event.timestamp <= 7 * DAY_IN_MS);
   const eventsLast48h = normalizedEvents.filter((event) => referenceTime - event.timestamp <= 2 * DAY_IN_MS);
@@ -403,12 +462,14 @@ export function computeLearningFeatures(events = [], referenceTime = Date.now())
         eventsCount: 1,
         firstTimestamp: event.timestamp,
         lastTimestamp: event.timestamp,
+        topicIds: [event.topicId],
       });
       return;
     }
 
     previousSession.eventsCount += 1;
     previousSession.lastTimestamp = event.timestamp;
+    previousSession.topicIds.push(event.topicId);
   });
 
   const activeDays = [...new Set(eventsLast14d.map((event) => new Date(event.timestamp).toISOString().slice(0, 10)))];
@@ -444,6 +505,18 @@ export function computeLearningFeatures(events = [], referenceTime = Date.now())
 
   let retriedAfterWrong = 0;
   let wrongAttempts = 0;
+  let topicTransitions = 0;
+  let topicSwitches = 0;
+
+  sessions.forEach((session) => {
+    session.topicIds.slice(1).forEach((topicId, index) => {
+      topicTransitions += 1;
+
+      if (topicId !== session.topicIds[index]) {
+        topicSwitches += 1;
+      }
+    });
+  });
 
   attemptEventsLast14d.forEach((event, index) => {
     if (event.isCorrect !== false || !event.questionId) {
@@ -462,6 +535,14 @@ export function computeLearningFeatures(events = [], referenceTime = Date.now())
       retriedAfterWrong += 1;
     }
   });
+
+  const weakTopicAttempts = attemptEventsLast14d.filter((event) => weakTopicSet.includes(event.topicId)).length;
+  const weakTopicsTouched = new Set(
+    attemptEventsLast14d
+      .filter((event) => weakTopicSet.includes(event.topicId))
+      .map((event) => event.topicId),
+  ).size;
+  const recentBurstRatio = roundTo(safeRatio(eventsLast48h.length, eventsLast14d.length), 4);
 
   return {
     totalEvents: normalizedEvents.length,
@@ -484,6 +565,12 @@ export function computeLearningFeatures(events = [], referenceTime = Date.now())
     retryAfterWrongRate: roundTo(safeRatio(retriedAfterWrong, wrongAttempts), 4),
     attemptsLast14d: attemptEventsLast14d.length,
     medianAttemptTimeSec: roundTo(median(attemptDurations), 2),
+    recentBurstRatio,
+    topicSwitchRate: roundTo(safeRatio(topicSwitches, topicTransitions), 4),
+    weakTopicSet,
+    weakTopicAttemptShare: roundTo(safeRatio(weakTopicAttempts, attemptEventsLast14d.length), 4),
+    weakTopicCoverage: roundTo(safeRatio(weakTopicsTouched, weakTopicSet.length), 4),
+    topicStats,
   };
 }
 
@@ -772,11 +859,23 @@ export function buildInitialStudentModel({ name, email, answers, questions, time
     persona: {
       primary: personaProfile.primaryPersona,
       initialPrimary: personaProfile.primaryPersona,
+      weakLabel: personaProfile.primaryPersona,
+      weakLabelScores: personaProfile.matchScores,
+      behaviorLabel: null,
+      behaviorLabelScores: null,
+      behaviorConfidence: 0,
+      behaviorMargin: 0,
+      canonicalLabel: personaProfile.primaryPersona,
+      labelSource: "weak",
+      lastLabelUpdatedAt: timestamp,
       initialMatchScores: personaProfile.matchScores,
       liveMatchScores: personaProfile.matchScores,
       ranked: personaProfile.rankedPersonas,
       rawScores: personaProfile.rawScores,
     },
+    behaviorFeatures: null,
+    weakTopicSet: [],
+    topicStats: {},
     learningRadar: initialRadar,
     learningEvents: [],
   };
@@ -785,21 +884,35 @@ export function buildInitialStudentModel({ name, email, answers, questions, time
 export function buildSessionFromStudentRecord(studentRecord = {}) {
   const fallbackPrimaryPersonaId = studentRecord?.persona?.primary?.id || studentRecord?.persona?.id || "comfort";
   const legacyMatchScores = normalizeStoredMatchScores(null, studentRecord?.persona?.totals);
+  const weakLabelScores = studentRecord?.persona?.weakLabelScores
+    || studentRecord?.persona?.initialMatchScores
+    || studentRecord?.persona?.liveMatchScores
+    || legacyMatchScores
+    || { ...createEmptyPersonaScores(), [fallbackPrimaryPersonaId]: 1 };
+  const behaviorLabelScores = studentRecord?.persona?.behaviorLabelScores || null;
   const fallbackMatchScores = studentRecord?.persona?.initialMatchScores
     || studentRecord?.persona?.liveMatchScores
     || legacyMatchScores
     || { ...createEmptyPersonaScores(), [fallbackPrimaryPersonaId]: 1 };
-
-  const primaryPersona = studentRecord?.persona?.primary || {
-    ...(personaCatalog[fallbackPrimaryPersonaId] || personaCatalog.comfort),
-    label: studentRecord?.persona?.label || personaCatalog[fallbackPrimaryPersonaId]?.label || personaCatalog.comfort.label,
-    summary: studentRecord?.persona?.summary || personaCatalog[fallbackPrimaryPersonaId]?.summary || personaCatalog.comfort.summary,
-    matchScore: fallbackMatchScores[fallbackPrimaryPersonaId] || 1,
+  const labelSource = studentRecord?.persona?.labelSource || "weak";
+  const activeScores = labelSource === "behavior_rule" && behaviorLabelScores
+    ? behaviorLabelScores
+    : weakLabelScores;
+  const canonicalLabel = studentRecord?.persona?.canonicalLabel
+    || studentRecord?.persona?.primary
+    || {
+      ...(personaCatalog[fallbackPrimaryPersonaId] || personaCatalog.comfort),
+      matchScore: activeScores[fallbackPrimaryPersonaId] || 1,
+    };
+  const primaryPersona = {
+    ...(personaCatalog[canonicalLabel.id] || personaCatalog[fallbackPrimaryPersonaId] || personaCatalog.comfort),
+    ...canonicalLabel,
+    matchScore: canonicalLabel.matchScore ?? activeScores[canonicalLabel.id] ?? 1,
   };
 
   const learningRadar = studentRecord?.learningRadar
     || buildLearningRadar({
-      matchScores: fallbackMatchScores,
+      matchScores: weakLabelScores,
       events: studentRecord?.learningEvents || [],
     });
   const academicProfile = studentRecord?.academicProfile || null;
@@ -818,14 +931,25 @@ export function buildSessionFromStudentRecord(studentRecord = {}) {
     persona: {
       primary: primaryPersona,
       initialPrimary: studentRecord?.persona?.initialPrimary || primaryPersona,
+      weakLabel: studentRecord?.persona?.weakLabel || studentRecord?.persona?.primary || primaryPersona,
+      weakLabelScores,
+      behaviorLabel: studentRecord?.persona?.behaviorLabel || null,
+      behaviorLabelScores,
+      behaviorConfidence: studentRecord?.persona?.behaviorConfidence || 0,
+      behaviorMargin: studentRecord?.persona?.behaviorMargin || 0,
+      canonicalLabel: primaryPersona,
+      labelSource,
+      lastLabelUpdatedAt: studentRecord?.persona?.lastLabelUpdatedAt || null,
       initialMatchScores: studentRecord?.persona?.initialMatchScores || fallbackMatchScores,
-      liveMatchScores: studentRecord?.persona?.liveMatchScores || fallbackMatchScores,
-      ranked: studentRecord?.persona?.ranked || rankPersonaScores(fallbackMatchScores),
+      liveMatchScores: studentRecord?.persona?.liveMatchScores || activeScores,
+      ranked: studentRecord?.persona?.ranked || rankPersonaScores(activeScores),
       rawScores: studentRecord?.persona?.rawScores || null,
     },
-    personaConfidence: typeof studentRecord?.personaConfidence === "number"
-      ? studentRecord.personaConfidence
-      : primaryPersona.matchScore || 0,
+    personaConfidence: primaryPersona.matchScore
+      || (typeof studentRecord?.personaConfidence === "number" ? studentRecord.personaConfidence : 0),
+    behaviorFeatures: studentRecord?.behaviorFeatures || learningRadar?.features || null,
+    weakTopicSet: studentRecord?.weakTopicSet || learningRadar?.features?.weakTopicSet || [],
+    topicStats: studentRecord?.topicStats || learningRadar?.features?.topicStats || {},
     learningRadar,
     learningEvents: studentRecord.learningEvents || [],
   };

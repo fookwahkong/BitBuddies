@@ -3,7 +3,9 @@ import React from "react";
 export default function TopNav({
   user,
   onOpenPractice,
+  onOpenJudge,
   onOpenToDo,
+  onOpenPersonas,
   onGoHome,
   onSignOut,
   activePage,
@@ -36,6 +38,22 @@ export default function TopNav({
           onClick={onOpenToDo}
         >
           ToDo
+        </button>
+
+        <button
+          className={`nav-pill ${activePage === "personas" ? "nav-pill-active" : ""}`}
+          type="button"
+          onClick={onOpenPersonas}
+        >
+          Personas
+        </button>
+
+        <button
+          className={`nav-pill ${activePage === "judge" ? "nav-pill-active" : ""}`}
+          type="button"
+          onClick={onOpenJudge}
+        >
+          Judge Desk
         </button>
       </div>
 

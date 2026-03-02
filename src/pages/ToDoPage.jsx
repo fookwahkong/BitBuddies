@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import TopNav from "../components/TopNav";
 
 import { db } from "../firebaseConfig.js";
-import { chatStyles, styles } from "./toDoPageStyles.js";
 
 const metrics = [
   { key: "mastery", label: "Mastery" },
@@ -272,7 +272,7 @@ function RadarChart({ values }) {
   return (
     <svg
       viewBox="0 0 192 192"
-      style={{ width: "100%", height: "100%" }}
+      className="todo-mini-radar"
       role="img"
       aria-label="Projected radar chart"
     >
@@ -290,9 +290,7 @@ function RadarChart({ values }) {
           <polygon
             key={ring}
             points={ringPoints}
-            fill="none"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth="0.8"
+            className="todo-mini-radar-ring"
           />
         );
       })}
@@ -304,23 +302,20 @@ function RadarChart({ values }) {
           y1={center}
           x2={point.x}
           y2={point.y}
-          stroke="rgba(255,255,255,0.1)"
-          strokeWidth="0.8"
+          className="todo-mini-radar-axis"
         />
       ))}
 
       <polygon
         points={polygon}
-        fill="rgba(99,179,237,0.18)"
-        stroke="#63b3ed"
-        strokeWidth="1.5"
+        className="todo-mini-radar-shape"
       />
 
       {points.map((point) => {
         const valueRadius = (values[point.key] / 100) * radius;
         const x = center + Math.cos(point.angle) * valueRadius;
         const y = center + Math.sin(point.angle) * valueRadius;
-        return <circle key={point.key} cx={x} cy={y} r="3.5" fill="#63b3ed" />;
+        return <circle key={point.key} cx={x} cy={y} r="3.5" className="todo-mini-radar-dot" />;
       })}
 
       {points.map((point) => {
@@ -335,9 +330,7 @@ function RadarChart({ values }) {
             y={y}
             textAnchor="middle"
             dominantBaseline="middle"
-            fontSize="8"
-            fill="rgba(255,255,255,0.55)"
-            fontFamily="inherit"
+            className="todo-mini-radar-label"
           >
             {point.label}
           </text>
@@ -507,21 +500,21 @@ function PossibleWorldsMap({
   }, [setPositions]);
 
   return (
-    <div style={styles.mapSection}>
-      <div style={styles.mapHeader}>
-        <span style={styles.eyebrow}>Interactive assignment map</span>
-        <h2 style={styles.mapTitle}>Possible Worlds</h2>
-        <p style={styles.mapSubtitle}>
+    <div className="todo-map-shell">
+      <div className="todo-map-header">
+        <span className="todo-eyebrow">Interactive assignment map</span>
+        <h2 className="todo-map-title">Possible Worlds</h2>
+        <p className="todo-map-subtitle">
           Tap a bubble to select an assignment path. Drag any bubble except the
           anchor to rearrange. Student prompts can now add new branches or leaf
           options without replacing the whole tree.
         </p>
       </div>
 
-      <div style={styles.boardWrap} ref={sceneRef}>
+      <div className="todo-map-board" ref={sceneRef}>
         <svg
           viewBox="0 0 100 100"
-          style={styles.branchSvg}
+          className="todo-map-branches"
           preserveAspectRatio="none"
           aria-hidden="true"
         >
@@ -539,12 +532,7 @@ function PossibleWorldsMap({
                 y1={from.y}
                 x2={to.x}
                 y2={to.y}
-                stroke={isActive ? "#63b3ed" : "rgba(255,255,255,0.12)"}
-                strokeWidth={isActive ? "0.7" : "0.4"}
-                style={{
-                  filter: isActive ? "drop-shadow(0 0 3px #63b3ed)" : undefined,
-                  transition: "stroke 0.3s, stroke-width 0.3s",
-                }}
+                className={`todo-map-edge${isActive ? " todo-map-edge-active" : ""}`}
               />
             );
           })}
@@ -559,27 +547,10 @@ function PossibleWorldsMap({
             <button
               key={node.id}
               type="button"
+              className={`todo-world-node${isSelected ? " is-selected" : ""}${inPath ? " is-path" : ""}${isRoot ? " is-root" : ""}`}
               style={{
-                ...styles.node,
                 left: `${node.position.x}%`,
                 top: `${node.position.y}%`,
-                background: isSelected
-                  ? "linear-gradient(135deg,#2b6cb0,#63b3ed)"
-                  : inPath
-                  ? "rgba(99,179,237,0.18)"
-                  : "rgba(255,255,255,0.06)",
-                border: isSelected
-                  ? "1.5px solid #63b3ed"
-                  : inPath
-                  ? "1.5px solid rgba(99,179,237,0.5)"
-                  : "1.5px solid rgba(255,255,255,0.12)",
-                boxShadow: isSelected
-                  ? "0 0 18px rgba(99,179,237,0.45), 0 4px 16px rgba(0,0,0,0.4)"
-                  : "0 2px 8px rgba(0,0,0,0.3)",
-                cursor: isRoot ? "default" : "grab",
-                transform: isSelected
-                  ? "translate(-50%,-50%) scale(1.06)"
-                  : "translate(-50%,-50%)",
               }}
               onPointerDown={(event) => {
                 if (isRoot) return;
@@ -598,31 +569,28 @@ function PossibleWorldsMap({
                 }
               }}
             >
-              <span style={styles.nodeTag}>{node.tag}</span>
-              <strong style={styles.nodeLabel}>{node.label}</strong>
+              <span className="todo-world-node-tag">{node.tag}</span>
+              <strong className="todo-world-node-label">{node.label}</strong>
             </button>
           );
         })}
 
         <div
-          style={{
-            ...styles.drawer,
-            ...(drawerExpanded ? styles.drawerExpanded : {}),
-          }}
+          className={`todo-world-drawer${drawerExpanded ? " is-expanded" : ""}`}
           onClick={() => {
             if (!drawerExpanded) {
               setDrawerExpanded(true);
             }
           }}
         >
-          <div style={styles.drawerHeader}>
+          <div className="todo-world-drawer-header">
             <div>
-              <span style={styles.eyebrow}>Selected world</span>
-              <h3 style={styles.drawerTitle}>{selectedNode.label}</h3>
+              <span className="todo-eyebrow">Selected world</span>
+              <h3 className="todo-world-drawer-title">{selectedNode.label}</h3>
             </div>
             <button
               type="button"
-              style={styles.drawerToggle}
+              className="todo-world-toggle"
               onClick={(event) => {
                 event.stopPropagation();
                 setDrawerExpanded((current) => !current);
@@ -632,23 +600,18 @@ function PossibleWorldsMap({
             </button>
           </div>
 
-          <div
-            style={{
-              ...styles.drawerBody,
-              ...(drawerExpanded ? styles.drawerBodyExpanded : {}),
-            }}
-          >
-            <p style={styles.drawerAssignment}>{selectedNode.assignment}</p>
+          <div className={`todo-world-drawer-body${drawerExpanded ? " is-expanded" : ""}`}>
+            <p className="todo-world-assignment">{selectedNode.assignment}</p>
 
-            <div style={styles.radarWrap}>
+            <div className="todo-world-radar-wrap">
               <RadarChart values={projectedState} />
             </div>
 
-            <div style={styles.metricGrid}>
+            <div className="todo-world-metric-grid">
               {metrics.map((metric) => (
-                <div key={metric.key} style={styles.metricCard}>
-                  <span style={styles.metricLabel}>{metric.label}</span>
-                  <strong style={styles.metricValue}>
+                <div key={metric.key} className="todo-world-metric-card">
+                  <span className="todo-world-metric-label">{metric.label}</span>
+                  <strong className="todo-world-metric-value">
                     {projectedState[metric.key]}
                   </strong>
                 </div>
@@ -656,20 +619,20 @@ function PossibleWorldsMap({
             </div>
 
             {drawerExpanded ? (
-              <div style={styles.expandedCopy}>
+              <div className="todo-world-expanded">
                 <div>
-                  <h4 style={styles.expandedHeading}>Why this choice</h4>
-                  <ul style={styles.expandedList}>
+                  <h4 className="todo-world-expanded-heading">Why this choice</h4>
+                  <ul className="todo-world-expanded-list">
                     {selectedNode.reason.map((item) => (
-                      <li key={item} style={styles.expandedItem}>
+                      <li key={item} className="todo-world-expanded-item">
                         {item}
                       </li>
                     ))}
                   </ul>
                 </div>
                 <div>
-                  <h4 style={styles.expandedHeading}>What changes</h4>
-                  <p style={styles.expandedText}>
+                  <h4 className="todo-world-expanded-heading">What changes</h4>
+                  <p className="todo-world-expanded-text">
                     This path shifts the learner from the current baseline into a
                     new possible world with a stronger emphasis on{" "}
                     {selectedNode.depth >= 2
@@ -680,7 +643,7 @@ function PossibleWorldsMap({
                 </div>
               </div>
             ) : (
-              <p style={styles.drawerHint}>
+              <p className="todo-world-hint">
                 Press this card to open the full explanation and radar details.
               </p>
             )}
@@ -771,39 +734,34 @@ function StudentPrompt({
   }
 
   return (
-    <div style={chatStyles.wrap}>
-      <div style={chatStyles.header}>
-        <span style={chatStyles.eyebrow}>Student Prompt</span>
-        <h2 style={chatStyles.title}>Ask your study buddy</h2>
-        <p style={chatStyles.subtitle}>
+    <div className="todo-chat-shell">
+      <div className="todo-chat-header">
+        <span className="todo-eyebrow">Student Prompt</span>
+        <h2 className="todo-chat-title">Ask your study buddy</h2>
+        <p className="todo-chat-subtitle">
           Ask a question, describe what is confusing, or say how your last
           session went.
         </p>
       </div>
 
-      <div style={chatStyles.feed}>
+      <div className="todo-chat-feed">
         {messages.map((message, index) => (
           <div
             key={index}
-            style={{
-              ...chatStyles.bubble,
-              ...(message.role === "user"
-                ? chatStyles.bubbleUser
-                : chatStyles.bubbleBot),
-            }}
+            className={`todo-chat-bubble${message.role === "user" ? " is-user" : " is-bot"}`}
           >
-            {message.role === "assistant" && <span style={chatStyles.avatar}>B</span>}
-            <p style={chatStyles.bubbleText}>{message.content}</p>
+            {message.role === "assistant" && <span className="todo-chat-avatar">B</span>}
+            <p className="todo-chat-bubble-text">{message.content}</p>
           </div>
         ))}
 
         {loading && (
-          <div style={{ ...chatStyles.bubble, ...chatStyles.bubbleBot }}>
-            <span style={chatStyles.avatar}>B</span>
-            <p style={{ ...chatStyles.bubbleText, ...chatStyles.typing }}>
-              <span style={chatStyles.dot} />
-              <span style={{ ...chatStyles.dot, animationDelay: "0.18s" }} />
-              <span style={{ ...chatStyles.dot, animationDelay: "0.36s" }} />
+          <div className="todo-chat-bubble is-bot">
+            <span className="todo-chat-avatar">B</span>
+            <p className="todo-chat-bubble-text todo-chat-typing">
+              <span className="todo-chat-dot" />
+              <span className="todo-chat-dot" style={{ animationDelay: "0.18s" }} />
+              <span className="todo-chat-dot" style={{ animationDelay: "0.36s" }} />
             </p>
           </div>
         )}
@@ -811,10 +769,10 @@ function StudentPrompt({
         <div ref={bottomRef} />
       </div>
 
-      <div style={chatStyles.inputRow}>
+      <div className="todo-chat-input-row">
         <textarea
           rows={1}
-          style={chatStyles.textarea}
+          className="todo-chat-textarea"
           placeholder="Type your question..."
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -823,10 +781,8 @@ function StudentPrompt({
         />
         <button
           type="button"
-          style={{
-            ...chatStyles.sendBtn,
-            opacity: input.trim() ? 1 : 0.4,
-          }}
+          className="todo-chat-send"
+          style={{ opacity: input.trim() ? 1 : 0.4 }}
           onClick={handleSend}
           disabled={!input.trim() || loading}
         >
@@ -837,7 +793,14 @@ function StudentPrompt({
   );
 }
 
-export default function ToDoPage({ user, onBackHome }) {
+export default function ToDoPage({
+  user,
+  onBackHome,
+  onOpenPractice,
+  onOpenJudge,
+  onOpenPersonas,
+  onSignOut,
+}) {
   const [nodeMapState, setNodeMapState] = useState(DEFAULT_NODE_MAP);
   const [positionsState, setPositionsState] = useState(DEFAULT_POSITIONS);
   const [selectedIdState, setSelectedIdState] = useState("teach");
@@ -887,6 +850,17 @@ export default function ToDoPage({ user, onBackHome }) {
 
   return (
     <main className="screen-shell">
+      <TopNav
+        user={user}
+        onOpenPractice={onOpenPractice}
+        onOpenToDo={() => {}}
+        onOpenJudge={onOpenJudge}
+        onOpenPersonas={onOpenPersonas}
+        onGoHome={onBackHome}
+        onSignOut={onSignOut}
+        activePage="todo"
+      />
+
       <section className="hero-card">
         <div className="hero-copy">
           <p className="eyebrow">ToDo Page</p>
@@ -902,7 +876,7 @@ export default function ToDoPage({ user, onBackHome }) {
         <div className="hero-stats">
           <div className="stat-card">
             <span className="stat-label">Current persona</span>
-            <strong>{user?.persona?.label}</strong>
+            <strong>{user?.persona?.primary?.label || "Not set"}</strong>
           </div>
           <div className="stat-card">
             <span className="stat-label">Logged events</span>

@@ -110,6 +110,14 @@ export function calculatePersona(answers) {
 
   return {
     primary: personaProfile.primaryPersona,
+    weakLabel: personaProfile.primaryPersona,
+    weakLabelScores: personaProfile.matchScores,
+    behaviorLabel: null,
+    behaviorLabelScores: null,
+    behaviorConfidence: 0,
+    behaviorMargin: 0,
+    canonicalLabel: personaProfile.primaryPersona,
+    labelSource: "weak",
     initialMatchScores: personaProfile.matchScores,
     liveMatchScores: personaProfile.matchScores,
     ranked: personaProfile.rankedPersonas,
