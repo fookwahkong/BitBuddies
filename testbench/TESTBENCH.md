@@ -159,14 +159,8 @@ I keep getting algebra questions wrong and I do not know what to revise first.
 
 3. Wait for the Study Buddy to generate suggested study plans.
 4. Select one of the suggested plans by:
-   - clicking the proposal, or
-   - replying with its number
-5. Confirm the selected proposal by replying:
-
-```text
-yes
-```
-
+   - clicking the recommendation, 
+5. Confirm the selected recommendation by clicking `Add selected`
 6. In the ToDo tree, select the new node.
 7. Click `Commit this study plan`.
 8. Send another study-related prompt to extend the path.
