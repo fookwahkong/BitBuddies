@@ -259,10 +259,9 @@ export default function PracticePage({
         <section className="practice-stage-card practice-upload-stage">
           <div className="practice-stage-shell">
             <p className="eyebrow">Practice Intake</p>
-            <h1 className="auth-title">Upload a PDF or image to begin.</h1>
+            <h1 className="auth-title">Upload a PDF or image to begin</h1>
             <p className="hero-text practice-stage-copy">
-              This intake step is intentionally minimal. Upload first, then BitBuddies will show a confirmation
-              screen with the extracted practice details.
+              Diagnostic Engine for Checkpointing, Observing Difficulties, and Evolving mastery
             </p>
 
             <label className="practice-upload-dropzone" htmlFor="practice-upload-input">

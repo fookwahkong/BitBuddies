@@ -77,23 +77,54 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
           </div>
         </section>
       ) : (
-        <>
-          <header className="top-bar">
-            <div className="brand-lockup">
+        <section className="landing-login-shell">
+          <div className="landing-login-side">
+            <button
+              type="button"
+              className="landing-login-back"
+              onClick={() => {
+                setShowLogin(false);
+                setError("");
+                setForm({ email: "", password: "" });
+              }}
+            >
+              Back
+            </button>
+
+            <div className="brand-lockup landing-login-brand">
               <div className="brand-mark">B</div>
               <div>
                 <p className="brand-name">BitBuddies</p>
-                <p className="brand-tag">Explainable study direction for exam prep</p>
+                <p className="brand-tag landing-login-tag">Explainable study direction for exam prep</p>
               </div>
             </div>
-          </header>
 
-          <section className="auth-layout">
-            <div className="auth-panel">
-              <p className="eyebrow">Returning Student</p>
-              <h1 className="auth-title">Welcome back. Log in to continue from your latest radar state.</h1>
+            <div className="landing-login-copy">
+              <p className="eyebrow landing-login-eyebrow">Returning Student</p>
+              <h1 className="landing-login-title">
+                <span>Welcome back.</span>
+              </h1>
+              <p className="landing-login-text">
+                Pick up from your latest persona mix, recent practice analysis, and saved study pathways without
+                resetting the dashboard.
+              </p>
 
-              <form className="auth-form" onSubmit={handleLogin}>
+              <div className="landing-login-note">
+                <strong>What waits inside</strong>
+                <p>Practice recommendations, ToDo pathways, and revision signals remain connected to your latest activity.</p>
+              </div>
+            </div>
+
+            <p className="landing-login-footer">
+              BitBuddies keeps your study direction explainable, so every next step is tied back to persona, behavior,
+              and recent practice.
+            </p>
+          </div>
+
+          <div className="landing-login-form-panel">
+            <div className="landing-login-form-shell">
+              <p className="landing-login-form-kicker">Account Access</p>
+              <form className="auth-form landing-login-form" onSubmit={handleLogin}>
                 <label className="input-group">
                   <span>Email</span>
                   <input
@@ -122,43 +153,22 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
                 </button>
               </form>
 
-              <p style={{ marginTop: "1rem", fontSize: "0.875rem", color: "#6b7693" }}>
-                Need an account?{" "}
+              <div className="landing-login-register">
+                <p>Need an account?</p>
                 <button
                   type="button"
+                  className="secondary-button full-width"
                   onClick={() => {
                     setShowLogin(false);
                     onStart();
                   }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                    color: "inherit",
-                    fontSize: "inherit",
-                    padding: 0,
-                  }}
                 >
                   Start your assessment
                 </button>
-              </p>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowLogin(false);
-                  setError("");
-                  setForm({ email: "", password: "" });
-                }}
-                className="status-pill status-pill-button"
-                style={{ marginTop: "1rem" }}
-              >
-                Back
-              </button>
+              </div>
             </div>
-          </section>
-        </>
+          </div>
+        </section>
       )}
     </main>
   );

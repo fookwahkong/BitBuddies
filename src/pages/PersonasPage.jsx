@@ -61,28 +61,8 @@ export default function PersonasPage({
 
       <section className="hero-card persona-guide-hero">
         <div className="hero-copy">
-          <p className="eyebrow">Learning Personas</p>
-          <p className="hero-kicker">How BitBuddies reads study behavior</p>
-          <h1>Each persona is a quick pattern, not a permanent identity.</h1>
-          <p className="hero-text">
-            This page gives the surface-level meaning of the five learning personas. It is meant to help students
-            understand the label at a glance before we add deeper coaching notes for each one.
-          </p>
-        </div>
-
-        <div className="hero-stats">
-          <div className="stat-card stat-card-highlight">
-            <span className="stat-label">Your trusted persona</span>
-            <strong>{user?.persona?.primary?.label || "Not available"}</strong>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Current match</span>
-            <strong>{Math.round((user?.persona?.primary?.matchScore || 0) * 100)}%</strong>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Use</span>
-            <strong>Interpret the pattern, then adjust the next study move.</strong>
-          </div>
+          <p className="eyebrow">Personalized Revision Insight and Strategy Model</p>
+          <h1>Each persona is a quick pattern, not a permanent identity</h1>
         </div>
       </section>
 

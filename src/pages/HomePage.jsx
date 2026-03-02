@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import PersonaVisual from "../components/PersonaVisual";
 import RadarChart from "../components/RadarChart";
 import TopNav from "../components/TopNav";
@@ -67,6 +67,8 @@ export default function HomePage({
   onToggleStudyPlan,
   user,
 }) {
+  const [showPersonaExplanation, setShowPersonaExplanation] = useState(false);
+
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     document.documentElement.scrollTop = 0;
@@ -93,6 +95,15 @@ export default function HomePage({
     ? new Date(radar.meta.lastComputedAt).toLocaleString()
     : "Not computed yet";
   const studyPlanTodos = Array.isArray(user.studyPlanTodos) ? user.studyPlanTodos : [];
+  const scoreSource = user.persona.labelSource === "behavior_rule" ? "behavior signal" : "onboarding quiz";
+  const secondPersona = rankedPersonas[1] || null;
+  const liveScores = Object.entries(user.persona.liveMatchScores || {})
+    .map(([id, value]) => ({
+      id,
+      label: rankedPersonas.find((persona) => persona.id === id)?.label || id,
+      value: Number(value) || 0,
+    }))
+    .sort((left, right) => right.value - left.value);
 
   return (
     <main className="screen-shell">
@@ -111,24 +122,20 @@ export default function HomePage({
         <div className="panel-header panel-header-spread">
           <div>
             <p className="eyebrow">Student Snapshot</p>
-            <h2>{user.name}</h2>
           </div>
-          <button className="secondary-button" type="button" onClick={onOpenPersonas}>
-            View persona guide
+          <button className="secondary-button" type="button" onClick={() => setShowPersonaExplanation(true)}>
+            Why this persona?
           </button>
         </div>
 
         <div className="student-profile-shell">
           <div className="student-profile-copy">
-            <p className="student-intro">
-              Your homepage now focuses on one trusted persona instead of multiple mini panels. The rest of the
-              profile details stay grouped here for a cleaner first glance.
-            </p>
 
             <div className="student-profile-grid">
               <div className="student-detail-card">
                 <span>Username</span>
                 <strong>{user.name}</strong>
+
               </div>
 
               <div className="student-detail-card">
@@ -158,15 +165,6 @@ export default function HomePage({
               summaryText={primaryPersona.summary}
             />
           </div>
-        </div>
-
-        <div className="persona-scoreboard">
-          {rankedPersonas.map((persona) => (
-            <div key={persona.id} className="persona-chip">
-              <span>{persona.label}</span>
-              <strong>{persona.displayPercent}%</strong>
-            </div>
-          ))}
         </div>
       </section>
 
@@ -223,7 +221,7 @@ export default function HomePage({
         <div className="panel-header panel-header-spread">
           <div>
             <p className="eyebrow">Committed Plans</p>
-            <h2>Your ToDo list updates automatically from committed study nodes.</h2>
+            <h2>Your PATH list updates automatically from committed study nodes</h2>
           </div>
           <button className="secondary-button" type="button" onClick={onOpenToDo}>
             Open ToDo planner
@@ -247,15 +245,61 @@ export default function HomePage({
             ))}
           </div>
         ) : (
-          <div className="todo-feedback">
-            No study plan has been committed yet. Pick a node in Possible Worlds and press
-            {" "}
-            <strong>Commit this study plan</strong>
-            {" "}
-            to send it here.
+          <div className="explain-card" style={{ marginTop: "20px" }}>
+            <h3>No committed plans yet</h3>
+            <p className="student-helper">
+              Commit a node from the PATH page and it will appear here automatically as a checklist item.
+            </p>
           </div>
         )}
       </section>
+
+      {showPersonaExplanation ? (
+        <div className="persona-explain-overlay" onClick={() => setShowPersonaExplanation(false)}>
+          <div className="persona-explain-card" onClick={(event) => event.stopPropagation()}>
+            <div className="panel-header panel-header-spread">
+              <div>
+                <p className="eyebrow">Persona Explanation</p>
+                <h2>{primaryPersona.label}</h2>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setShowPersonaExplanation(false)}>
+                Close
+              </button>
+            </div>
+
+            <div className="insight-grid" style={{ marginTop: "20px" }}>
+              <div className="explain-card">
+                <h3>Why this persona is active</h3>
+                <ul>
+                  <li>Trusted persona: {primaryPersona.label}</li>
+                  <li>Decision source: {scoreSource}</li>
+                  <li>Current top match: {formatPercent(primaryPersona.matchScore)}</li>
+                </ul>
+              </div>
+
+              <div className="explain-card">
+                <h3>Calculation breakdown</h3>
+                <ul>
+                  {liveScores.map((score) => (
+                    <li key={score.id}>
+                      {score.label}: {formatPercent(score.value)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="explain-card" style={{ marginTop: "20px" }}>
+              <h3>How BitBuddies decides</h3>
+              <p className="student-helper">
+                BitBuddies ranks the current persona scores and trusts the highest active one. The original onboarding
+                quiz provides the starting label, and later behavior data can take over if the behavior signal becomes
+                strong enough.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -29,7 +29,7 @@ export default function TopNav({
           type="button"
           onClick={onOpenPractice}
         >
-          Practice
+          DECODE
         </button>
 
         <button
@@ -37,7 +37,7 @@ export default function TopNav({
           type="button"
           onClick={onOpenToDo}
         >
-          ToDo
+          PATH
         </button>
 
         <button
@@ -45,7 +45,7 @@ export default function TopNav({
           type="button"
           onClick={onOpenPersonas}
         >
-          Personas
+          PRISM
         </button>
 
         <button
@@ -58,13 +58,18 @@ export default function TopNav({
       </div>
 
       <div className="nav-right">
-        <button className="nav-pill subtle-pill" type="button" onClick={onSignOut}>
-          Sign out
-        </button>
-        <button className="profile-pill" type="button" aria-label={user?.name ? `${user.name} profile` : "Profile"}>
-          <span className="profile-avatar">{profileLabel}</span>
-          <span className="profile-text">{user?.name ?? "Student"}</span>
-        </button>
+        <div className="profile-menu">
+          <button className="profile-pill" type="button" aria-label={user?.name ? `${user.name} profile` : "Profile"}>
+            <span className="profile-avatar">{profileLabel}</span>
+            <span className="profile-text">{user?.name ?? "Student"}</span>
+          </button>
+
+          <div className="profile-menu-dropdown" role="menu" aria-label="Profile menu">
+            <button className="profile-menu-item" type="button" onClick={onSignOut} role="menuitem">
+              Sign out
+            </button>
+          </div>
+        </div>
       </div>
     </header>
   );

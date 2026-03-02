@@ -18,17 +18,19 @@ export default function App() {
   const [screen, setScreen] = useState("landing");
   const [session, setSession] = useState(null);
   const [practiceAnalysis, setPracticeAnalysis] = useState(null);
-  const activePracticeAnalysis = practiceAnalysis || session?.latestPracticeAnalysis || null;
+  const [todoChatSessionId, setTodoChatSessionId] = useState(null);
 
   function handleAuthComplete(userProfile) {
     setSession(userProfile);
-    setPracticeAnalysis(userProfile?.latestPracticeAnalysis || null);
+    setPracticeAnalysis(null);
+    setTodoChatSessionId(Date.now());
     setScreen("home");
   }
 
   function handleSignOut() {
     setSession(null);
     setPracticeAnalysis(null);
+    setTodoChatSessionId(null);
     setScreen("landing");
   }
 
@@ -38,8 +40,7 @@ export default function App() {
   }
 
   function handleOpenPracticeHome() {
-    if (activePracticeAnalysis) {
-      setPracticeAnalysis(activePracticeAnalysis);
+    if (practiceAnalysis) {
       setScreen("practice-analysis");
       return;
     }
@@ -160,7 +161,7 @@ export default function App() {
       {screen === "practice-analysis" && session ? (
         <PracticeAnalysisPage
           user={session}
-          analysis={activePracticeAnalysis}
+          analysis={practiceAnalysis}
           onBackHome={() => setScreen("home")}
           onOpenPractice={handleOpenPracticeHome}
           onScanAnotherDocument={handleOpenPracticeUpload}
@@ -197,6 +198,7 @@ export default function App() {
       {screen === "todo" && session ? (
         <ToDoPage
           user={session}
+          chatSessionId={todoChatSessionId}
           onLogLearningAction={handleLearningAction}
           onBackHome={() => setScreen("home")}
           onOpenPractice={handleOpenPracticeHome}

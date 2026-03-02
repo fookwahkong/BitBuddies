@@ -482,11 +482,7 @@ function PossibleWorldsMap({
       <div className="todo-map-header">
         <div>
           <span className="todo-eyebrow">Interactive assignment map</span>
-          <h2 className="todo-map-title">Possible Worlds</h2>
-          <p className="todo-map-subtitle">
-            Student prompts create the first branch. After that, each new message
-            can add or refine assignment paths without replacing the whole tree.
-          </p>
+          <h2 className="todo-map-title">PATH</h2>
           {committedNode ? (
             <p className="todo-map-subtitle">
               Current committed path anchor: <strong>{committedNode.label}</strong>
@@ -926,6 +922,7 @@ function StudentPrompt({
 
 export default function ToDoPage({
   user,
+  chatSessionId,
   onBackHome,
   onOpenPractice,
   onOpenJudge,
@@ -951,20 +948,34 @@ export default function ToDoPage({
 
   useEffect(() => {
     async function loadTree() {
-      if (!user?.uid) return;
+      if (!user?.uid || !chatSessionId) return;
 
       const docRef = doc(db, "userTrees", user.uid);
       const snapshot = await getDoc(docRef);
 
       if (snapshot.exists()) {
         const data = snapshot.data();
+        const shouldResetChat = data.lastChatSessionId !== chatSessionId;
+
         if (data.nodeMap) setNodeMapState(data.nodeMap);
         if (data.positions) setPositionsState(data.positions);
         setSelectedIdState(data.selectedId ?? null);
-        setPendingProposalsState(data.pendingProposals ?? []);
-        setPendingSelectedProposalIdState(data.pendingSelectedProposalId ?? null);
+        setPendingProposalsState(shouldResetChat ? [] : (data.pendingProposals ?? []));
+        setPendingSelectedProposalIdState(shouldResetChat ? null : (data.pendingSelectedProposalId ?? null));
         setCommittedNodeIdState(data.committedNodeId ?? null);
-        setMessagesState(data.messages ?? STARTER_MESSAGES);
+        setMessagesState(shouldResetChat ? STARTER_MESSAGES : (data.messages ?? STARTER_MESSAGES));
+
+        if (shouldResetChat) {
+          await setDoc(docRef, {
+            ...data,
+            messages: STARTER_MESSAGES,
+            pendingProposals: [],
+            pendingSelectedProposalId: null,
+            lastChatSessionId: chatSessionId,
+            updatedAt: Date.now(),
+          });
+        }
+
         setTreeReady(true);
         return;
       }
@@ -977,13 +988,14 @@ export default function ToDoPage({
         messages: STARTER_MESSAGES,
         pendingProposals: [],
         pendingSelectedProposalId: null,
+        lastChatSessionId: chatSessionId,
         updatedAt: Date.now(),
       });
       setTreeReady(true);
     }
 
     loadTree();
-  }, [user?.uid]);
+  }, [chatSessionId, user?.uid]);
 
   useEffect(() => {
     async function saveTree() {
@@ -999,6 +1011,7 @@ export default function ToDoPage({
         messages: messagesState,
         pendingProposals: pendingProposalsState,
         pendingSelectedProposalId: pendingSelectedProposalIdState,
+        lastChatSessionId: chatSessionId,
         updatedAt: Date.now(),
       });
     }
@@ -1012,6 +1025,7 @@ export default function ToDoPage({
     messagesState,
     pendingProposalsState,
     pendingSelectedProposalIdState,
+    chatSessionId,
     treeReady,
     user?.uid,
   ]);
@@ -1030,10 +1044,17 @@ export default function ToDoPage({
       messages: STARTER_MESSAGES,
       pendingProposals: [],
       pendingSelectedProposalId: null,
+      lastChatSessionId: chatSessionId,
       updatedAt: Date.now(),
     };
+    const committedNodeIds = (user?.studyPlanTodos || [])
+      .map((item) => item.sourceNodeId)
+      .filter(Boolean);
 
     await setDoc(docRef, nextState);
+    if (committedNodeIds.length) {
+      await onRemoveStudyPlanNodes(committedNodeIds);
+    }
     setNodeMapState(INITIAL_NODE_MAP);
     setPositionsState(INITIAL_POSITIONS);
     setSelectedIdState(null);
@@ -1082,33 +1103,10 @@ export default function ToDoPage({
         activePage="todo"
       />
 
-      <section className="hero-card">
-        <div className="hero-copy">
-          <p className="eyebrow">ToDo Page</p>
-          <p className="hero-kicker">{user?.name}</p>
-          <h1>Your recommended revision tasks are organized here.</h1>
-          <p className="hero-text">
-            This page turns the BitBuddies recommendation into a concrete task
-            list. Start with the highest impact task first, then move down in
-            order.
-          </p>
-        </div>
-
-        <div className="hero-stats">
-          <div className="stat-card">
-            <span className="stat-label">Current persona</span>
-            <strong>{user?.persona?.primary?.label || "Not set"}</strong>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Logged events</span>
-            <strong>{user.learningRadar?.meta?.totalEvents || 0}</strong>
-          </div>
-          <div className="stat-card stat-card-highlight">
-            <span className="stat-label">Goal</span>
-            <strong>
-              Convert the next best move into short, trackable actions.
-            </strong>
-          </div>
+      <section className="hero-card todo-hero-card">
+        <div className="hero-copy todo-hero-copy">
+          <p className="eyebrow">Personalised Adaptive Task Hierachy</p>
+          <h1>Your recommended revision tasks are organized here</h1>
         </div>
       </section>
 
