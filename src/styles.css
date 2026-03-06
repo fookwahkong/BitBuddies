@@ -448,9 +448,13 @@ input {
 }
 
 .todo-hero-copy h1 {
-  max-width: 12ch;
+  max-width: 28ch;
   margin-inline: auto;
   text-wrap: balance;
+}
+
+.todo-hero-title-line {
+  display: block;
 }
 
 .todo-hero-copy .hero-text {
@@ -2032,6 +2036,12 @@ input {
   color: #f7f4ee;
 }
 
+.todo-chat-shell {
+  min-height: 38rem;
+  display: flex;
+  flex-direction: column;
+}
+
 .todo-map-header,
 .todo-chat-header {
   padding: 1.75rem 2rem 1rem;
@@ -2420,8 +2430,10 @@ input {
   padding: 1rem 1.25rem;
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 0.75rem;
-  max-height: 280px;
+  min-height: 24rem;
+  max-height: 420px;
   overflow-y: auto;
 }
 
@@ -2895,6 +2907,15 @@ input {
   .todo-chat-input-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .todo-chat-shell {
+    min-height: 32rem;
+  }
+
+  .todo-chat-feed {
+    min-height: 20rem;
+    max-height: 24rem;
   }
 
   .todo-chat-send {

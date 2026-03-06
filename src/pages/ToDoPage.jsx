@@ -1106,7 +1106,10 @@ export default function ToDoPage({
       <section className="hero-card todo-hero-card">
         <div className="hero-copy todo-hero-copy">
           <p className="eyebrow">Personalised Adaptive Task Hierachy</p>
-          <h1>Your recommended revision tasks are organized here</h1>
+          <h1>
+            <span className="todo-hero-title-line">Your recommended revision tasks</span>
+            <span className="todo-hero-title-line">are organized here</span>
+          </h1>
         </div>
       </section>
 
