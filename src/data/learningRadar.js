@@ -954,5 +954,6 @@ export function buildSessionFromStudentRecord(studentRecord = {}) {
     latestPracticeAnalysis: studentRecord?.latestPracticeAnalysis || null,
     studyPlanTodos: Array.isArray(studentRecord?.studyPlanTodos) ? studentRecord.studyPlanTodos : [],
     learningEvents: studentRecord.learningEvents || [],
+    judgeDeskDemo: studentRecord?.judgeDeskDemo || null,
   };
 }

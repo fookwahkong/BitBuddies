@@ -3,9 +3,17 @@ import PersonaVisual from "../components/PersonaVisual";
 import RadarChart from "../components/RadarChart";
 import TopNav from "../components/TopNav";
 import { buildSubjectMasteryAxes } from "../data/academicProfile";
+import { personaCatalog, rankPersonaScores } from "../data/learningRadar";
 
 function formatPercent(value) {
   return `${Math.round((value || 0) * 100)}%`;
+}
+
+function buildOneHotPersonaScores(personaId) {
+  return Object.keys(personaCatalog).reduce((scores, currentPersonaId) => {
+    scores[currentPersonaId] = currentPersonaId === personaId ? 1 : 0;
+    return scores;
+  }, {});
 }
 
 function buildPersonaDisplayMix(rankedPersonas) {
@@ -78,8 +86,21 @@ export default function HomePage({
     document.body.scrollTop = 0;
   }, []);
 
-  const primaryPersona = user.persona.primary;
-  const rankedPersonas = buildPersonaDisplayMix(user.persona.ranked);
+  const activeDemoScenario = user.judgeDeskDemo?.activeScenario || null;
+  const demoPersonaId = activeDemoScenario?.scenarioKind === "persona" ? activeDemoScenario.personaId : null;
+  const demoScores = demoPersonaId
+    ? (user.persona.behaviorLabelScores || buildOneHotPersonaScores(demoPersonaId))
+    : null;
+  const displayedScoreMap = demoScores || user.persona.liveMatchScores || {};
+  const primaryPersona = demoPersonaId
+    ? {
+      ...(personaCatalog[demoPersonaId] || user.persona.primary),
+      matchScore: displayedScoreMap[demoPersonaId] || user.persona.primary.matchScore || 1,
+    }
+    : user.persona.primary;
+  const rankedPersonas = buildPersonaDisplayMix(
+    demoPersonaId ? rankPersonaScores(displayedScoreMap) : user.persona.ranked,
+  );
   const radar = user.learningRadar;
   const features = radar.features || {};
   const subjectMastery = user.subjectMastery;
@@ -109,9 +130,11 @@ export default function HomePage({
 
     return !item.completed;
   });
-  const scoreSource = user.persona.labelSource === "behavior_rule" ? "behavior signal" : "onboarding quiz";
+  const scoreSource = demoPersonaId
+    ? "judge desk demo scenario"
+    : (user.persona.labelSource === "behavior_rule" ? "behavior signal" : "onboarding quiz");
   const secondPersona = rankedPersonas[1] || null;
-  const liveScores = Object.entries(user.persona.liveMatchScores || {})
+  const liveScores = Object.entries(displayedScoreMap)
     .map(([id, value]) => ({
       id,
       label: rankedPersonas.find((persona) => persona.id === id)?.label || id,
@@ -349,10 +372,11 @@ export default function HomePage({
                 <h3>Why this persona is active</h3>
                 <ul>
                   <li>Trusted persona: {primaryPersona.label}</li>
-                  <li>Decision source: {scoreSource}</li>
-                  <li>Current top match: {formatPercent(primaryPersona.matchScore)}</li>
-                </ul>
-              </div>
+              <li>Decision source: {scoreSource}</li>
+              <li>Current top match: {formatPercent(primaryPersona.matchScore)}</li>
+              {demoPersonaId ? <li>Demo override: homepage is mirroring the seeded Judge Desk persona.</li> : null}
+            </ul>
+          </div>
 
               <div className="explain-card">
                 <h3>Calculation breakdown</h3>
@@ -369,9 +393,9 @@ export default function HomePage({
             <div className="explain-card" style={{ marginTop: "20px" }}>
               <h3>How BitBuddies decides</h3>
               <p className="student-helper">
-                BitBuddies ranks the current persona scores and trusts the highest active one. The original onboarding
-                quiz provides the starting label, and later behavior data can take over if the behavior signal becomes
-                strong enough.
+                {demoPersonaId
+                  ? "A Judge Desk persona demo is active, so the homepage portrait is pinned to the seeded persona for storytelling. Judge Desk still shows the underlying behavior eligibility, scores, and promotion state."
+                  : "BitBuddies ranks the current persona scores and trusts the highest active one. The original onboarding quiz provides the starting label, and later behavior data can take over if the behavior signal becomes strong enough."}
               </p>
             </div>
           </div>

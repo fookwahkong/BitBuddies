@@ -10,7 +10,7 @@ import ToDoPage from "./pages/ToDoPage";
 import {
   recordLearningAction,
   saveLatestPracticeAnalysis,
-  seedDemoLearningJourney,
+  seedPersonaLearningJourney,
   seedNonLinearPatternJourney,
 } from "./data/studentProgress";
 import {
@@ -78,12 +78,12 @@ export default function App() {
     return updatedSession;
   }
 
-  async function handleSeedDemoJourney() {
+  async function handleSeedPersonaJourney(personaId) {
     if (!session) {
       return;
     }
 
-    const updatedSession = await seedDemoLearningJourney(session);
+    const updatedSession = await seedPersonaLearningJourney(session, personaId);
     setSession(updatedSession);
     return updatedSession;
   }
@@ -195,7 +195,7 @@ export default function App() {
           onOpenToDo={() => setScreen("todo")}
           onOpenPersonas={() => setScreen("personas")}
           onSignOut={handleSignOut}
-          onSeedDemoJourney={handleSeedDemoJourney}
+          onSeedPersonaJourney={handleSeedPersonaJourney}
           onSeedPatternJourney={handleSeedPatternJourney}
         />
       ) : null}

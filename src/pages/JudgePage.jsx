@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import TopNav from "../components/TopNav";
+import { personaCatalog } from "../data/learningRadar";
 import { buildTrainingSnapshotCsv, fetchTrainingSnapshots } from "../data/studentProgress";
+
+const PERSONA_IDS = Object.keys(personaCatalog);
 
 function formatPercent(value) {
   return `${Math.round((value || 0) * 100)}%`;
@@ -27,6 +30,19 @@ function downloadTextFile(filename, contents, mimeType) {
   window.URL.revokeObjectURL(url);
 }
 
+function formatPersonaName(personaId) {
+  return personaCatalog[personaId]?.shortLabel || personaId || "Unknown";
+}
+
+function buildScoreRows(activeScores = {}, behaviorScores = null) {
+  return PERSONA_IDS.map((personaId) => ({
+    id: personaId,
+    label: formatPersonaName(personaId),
+    activeScore: activeScores?.[personaId] || 0,
+    behaviorScore: behaviorScores?.[personaId] ?? null,
+  }));
+}
+
 function LabelHistoryChart({ snapshots }) {
   if (!snapshots.length) {
     return <p className="debug-message">No snapshots available yet.</p>;
@@ -37,15 +53,43 @@ function LabelHistoryChart({ snapshots }) {
   return (
     <div className="label-history-chart" aria-label="Judge desk label history">
       {orderedSnapshots.map((snapshot) => (
-        <div key={snapshot.id} className="label-history-bar-wrap">
+        <div key={snapshot.id || snapshot.timestamp} className="label-history-bar-wrap">
           <div
             className={`label-history-bar label-history-bar-${snapshot.canonicalLabel || "unknown"}`}
-            style={{ height: `${Math.max(20, Math.round((snapshot.behaviorConfidence || 0.2) * 100))}%` }}
+            style={{ height: `${Math.max(20, Math.round(((snapshot.behaviorEligible ? snapshot.behaviorConfidence : 0.2) || 0.2) * 100))}%` }}
             title={`${snapshot.canonicalLabel || "unknown"} at ${formatDateTime(snapshot.timestamp)}`}
           />
           <span className="label-history-caption">{snapshot.canonicalLabel || "n/a"}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function PersonaScoreTable({ activeScores, behaviorScores, behaviorEligible, title }) {
+  const rows = buildScoreRows(activeScores, behaviorScores);
+
+  return (
+    <div className="persona-score-table-card">
+      {title ? <p className="axis-label">{title}</p> : null}
+      <table className="persona-score-table">
+        <thead>
+          <tr>
+            <th>Persona</th>
+            <th>Active</th>
+            <th>Behavior</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td>{row.label}</td>
+              <td>{formatPercent(row.activeScore)}</td>
+              <td>{behaviorEligible ? formatPercent(row.behaviorScore || 0) : "Not eligible"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -57,7 +101,7 @@ export default function JudgePage({
   onOpenToDo,
   onOpenPersonas,
   onSignOut,
-  onSeedDemoJourney,
+  onSeedPersonaJourney,
   onSeedPatternJourney,
 }) {
   const [trainingSnapshots, setTrainingSnapshots] = useState([]);
@@ -66,6 +110,7 @@ export default function JudgePage({
   const [importedSnapshots, setImportedSnapshots] = useState([]);
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState("");
+  const [selectedPersona, setSelectedPersona] = useState("perfectionist");
 
   useEffect(() => {
     let isActive = true;
@@ -114,17 +159,17 @@ export default function JudgePage({
     downloadTextFile(filename, buildTrainingSnapshotCsv(trainingSnapshots), "text/csv;charset=utf-8");
   }
 
-  async function handleSeedDemo() {
+  async function handleSeedPersona() {
     setSeeding(true);
     setError("");
     setSeedMessage("");
 
     try {
-      await onSeedDemoJourney();
-      setSeedMessage("Demo journey seeded. Open ToDo to inspect the updated recommendation card.");
+      await onSeedPersonaJourney(selectedPersona);
+      setSeedMessage(`Persona seed applied: ${formatPersonaName(selectedPersona)}. Previous demo-generated data was reset first.`);
     } catch (seedError) {
-      console.error("Failed to seed from judge desk:", seedError);
-      setError("Demo events could not be seeded.");
+      console.error("Failed to seed persona scenario from judge desk:", seedError);
+      setError("Persona scenario could not be seeded.");
     } finally {
       setSeeding(false);
     }
@@ -137,7 +182,7 @@ export default function JudgePage({
 
     try {
       await onSeedPatternJourney(patternType);
-      setSeedMessage(`Pattern seed applied: ${patternType}. Open ToDo to verify the behavior card.`);
+      setSeedMessage(`Pattern seed applied: ${patternType}. Previous demo-generated data was reset first.`);
     } catch (seedError) {
       console.error(`Failed to seed ${patternType} pattern:`, seedError);
       setError(`Could not seed pattern: ${patternType}.`);
@@ -167,6 +212,10 @@ export default function JudgePage({
   }
 
   const visibleSnapshots = importedSnapshots.length ? importedSnapshots : trainingSnapshots;
+  const totalEvents = user.learningRadar?.meta?.totalEvents || 0;
+  const behaviorEligible = totalEvents >= 25;
+  const currentActiveScores = user.persona.liveMatchScores || user.persona.weakLabelScores || {};
+  const currentBehaviorScores = user.persona.behaviorLabelScores || null;
 
   return (
     <main className="screen-shell">
@@ -185,11 +234,21 @@ export default function JudgePage({
         <div className="panel-header panel-header-spread">
           <div>
             <p className="eyebrow">Judge Desk</p>
-            <h2>Inspect and export the training dataset without opening the dashboard.</h2>
+            <h2>Inspect the current persona decision path, then reseed demo-only scenarios.</h2>
           </div>
           <div className="debug-action-row">
-            <button className="primary-button" type="button" onClick={handleSeedDemo} disabled={seeding}>
-              {seeding ? "Seeding..." : "Seed demo events"}
+            <label className="judge-control">
+              <span>Persona scenario</span>
+              <select value={selectedPersona} onChange={(event) => setSelectedPersona(event.target.value)} disabled={seeding}>
+                {PERSONA_IDS.map((personaId) => (
+                  <option key={personaId} value={personaId}>
+                    {personaCatalog[personaId].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="primary-button" type="button" onClick={handleSeedPersona} disabled={seeding}>
+              {seeding ? "Seeding..." : "Seed persona scenario"}
             </button>
             <button
               className="secondary-button"
@@ -247,9 +306,11 @@ export default function JudgePage({
             <h3>Current live dataset</h3>
             <ul>
               <li>{trainingSnapshots.length} saved training snapshot(s)</li>
-              <li>{user.learningRadar?.meta?.totalEvents || 0} total learning events</li>
-              <li>Current trusted label: {user.persona.canonicalLabel?.label || user.persona.primary.label}</li>
-              <li>Current label source: {user.persona.labelSource === "behavior_rule" ? "Behavior Rule" : "Onboarding"}</li>
+              <li>{totalEvents} total learning events</li>
+              <li>Trusted label: {user.persona.canonicalLabel?.label || user.persona.primary.label}</li>
+              <li>Label source: {user.persona.labelSource === "behavior_rule" ? "Behavior Rule" : "Onboarding"}</li>
+              <li>Behavior label: {behaviorEligible ? (user.persona.behaviorLabel?.label || "Unavailable") : "Not eligible yet"}</li>
+              <li>Behavior confidence: {behaviorEligible ? formatPercent(user.persona.behaviorConfidence) : "Not eligible yet"}</li>
             </ul>
           </div>
 
@@ -263,6 +324,19 @@ export default function JudgePage({
               Imported files are preview-only. They do not overwrite Firestore.
             </p>
           </div>
+        </div>
+
+        <div className="explain-card" style={{ marginTop: "18px" }}>
+          <h3>Current persona score table</h3>
+          <p className="student-helper">
+            Active scores show the persona mix currently trusted by the app. Behavior scores remain hidden until the
+            learner reaches 25 total events.
+          </p>
+          <PersonaScoreTable
+            activeScores={currentActiveScores}
+            behaviorScores={currentBehaviorScores}
+            behaviorEligible={behaviorEligible}
+          />
         </div>
 
         {loading ? <p className="debug-message">Loading training snapshots...</p> : null}
@@ -282,17 +356,30 @@ export default function JudgePage({
                   <p className="axis-label">Snapshot</p>
                   <h3>{formatDateTime(snapshot.timestamp)}</h3>
                 </div>
-                <span className="snapshot-pill">{snapshot.labelSource === "behavior_rule" ? "Promoted" : "Weak"}</span>
+                <span className="snapshot-pill">{snapshot.labelSource === "behavior_rule" ? "Promoted" : "Onboarding"}</span>
               </div>
               <p className="axis-summary">
-                {snapshot.totalEvents || 0} total events | canonical label: {snapshot.canonicalLabel || "unknown"}
+                {snapshot.totalEvents || 0} total events | canonical label: {formatPersonaName(snapshot.canonicalLabel)}
               </p>
               <ul className="axis-signal-list">
-                <li>Weak label: {snapshot.weakLabel || "unknown"}</li>
-                <li>Behavior label: {snapshot.behaviorLabel || "not eligible"}</li>
-                <li>Behavior confidence: {formatPercent(snapshot.behaviorConfidence)}</li>
-                <li>Behavior margin: {formatPercent(snapshot.behaviorMargin)}</li>
+                <li>Weak label: {formatPersonaName(snapshot.weakLabel)}</li>
+                <li>Behavior label: {snapshot.behaviorEligible ? formatPersonaName(snapshot.behaviorLabel) : "Not eligible yet"}</li>
+                <li>Behavior confidence: {snapshot.behaviorEligible ? formatPercent(snapshot.behaviorConfidence) : "Not eligible yet"}</li>
+                <li>Behavior margin: {snapshot.behaviorEligible ? formatPercent(snapshot.behaviorMargin) : "Not eligible yet"}</li>
+                <li>
+                  Scenario: {snapshot.demoMeta?.scenarioKind === "persona"
+                    ? `Persona - ${formatPersonaName(snapshot.demoMeta?.personaId)}`
+                    : (snapshot.demoMeta?.scenarioKind === "pattern"
+                      ? `Pattern - ${snapshot.demoMeta?.patternType || "unknown"}`
+                      : "Imported or legacy snapshot")}
+                </li>
               </ul>
+              <PersonaScoreTable
+                activeScores={snapshot.activeLabelScores || snapshot.weakLabelScores || {}}
+                behaviorScores={snapshot.behaviorLabelScores || null}
+                behaviorEligible={Boolean(snapshot.behaviorEligible)}
+                title="Snapshot score table"
+              />
             </div>
           ))}
         </div>
