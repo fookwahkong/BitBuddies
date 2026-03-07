@@ -58,12 +58,14 @@ export default function JudgePage({
   onOpenPersonas,
   onSignOut,
   onSeedDemoJourney,
+  onSeedPatternJourney,
 }) {
   const [trainingSnapshots, setTrainingSnapshots] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [importedSnapshots, setImportedSnapshots] = useState([]);
   const [seeding, setSeeding] = useState(false);
+  const [seedMessage, setSeedMessage] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -115,12 +117,30 @@ export default function JudgePage({
   async function handleSeedDemo() {
     setSeeding(true);
     setError("");
+    setSeedMessage("");
 
     try {
       await onSeedDemoJourney();
+      setSeedMessage("Demo journey seeded. Open ToDo to inspect the updated recommendation card.");
     } catch (seedError) {
       console.error("Failed to seed from judge desk:", seedError);
       setError("Demo events could not be seeded.");
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  async function handleSeedPattern(patternType) {
+    setSeeding(true);
+    setError("");
+    setSeedMessage("");
+
+    try {
+      await onSeedPatternJourney(patternType);
+      setSeedMessage(`Pattern seed applied: ${patternType}. Open ToDo to verify the behavior card.`);
+    } catch (seedError) {
+      console.error(`Failed to seed ${patternType} pattern:`, seedError);
+      setError(`Could not seed pattern: ${patternType}.`);
     } finally {
       setSeeding(false);
     }
@@ -174,6 +194,38 @@ export default function JudgePage({
             <button
               className="secondary-button"
               type="button"
+              onClick={() => handleSeedPattern("inactive")}
+              disabled={seeding}
+            >
+              Seed inactive pattern
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => handleSeedPattern("bursty")}
+              disabled={seeding}
+            >
+              Seed bursty pattern
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => handleSeedPattern("fragmented")}
+              disabled={seeding}
+            >
+              Seed fragmented pattern
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => handleSeedPattern("deadlineDriven")}
+              disabled={seeding}
+            >
+              Seed deadline pattern
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
               onClick={handleExportJson}
               disabled={!trainingSnapshots.length}
             >
@@ -215,6 +267,7 @@ export default function JudgePage({
 
         {loading ? <p className="debug-message">Loading training snapshots...</p> : null}
         {error ? <p className="debug-message debug-message-error">{error}</p> : null}
+        {seedMessage ? <p className="debug-message">{seedMessage}</p> : null}
 
         <div className="explain-card" style={{ marginTop: "18px" }}>
           <h3>Canonical label history</h3>

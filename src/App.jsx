@@ -7,7 +7,12 @@ import PracticeAnalysisPage from "./pages/PracticeAnalysisPage";
 import JudgePage from "./pages/JudgePage";
 import PersonasPage from "./pages/PersonasPage";
 import ToDoPage from "./pages/ToDoPage";
-import { recordLearningAction, saveLatestPracticeAnalysis, seedDemoLearningJourney } from "./data/studentProgress";
+import {
+  recordLearningAction,
+  saveLatestPracticeAnalysis,
+  seedDemoLearningJourney,
+  seedNonLinearPatternJourney,
+} from "./data/studentProgress";
 import {
   commitStudyPlanTodo,
   removeStudyPlanTodosByNodeIds,
@@ -79,6 +84,16 @@ export default function App() {
     }
 
     const updatedSession = await seedDemoLearningJourney(session);
+    setSession(updatedSession);
+    return updatedSession;
+  }
+
+  async function handleSeedPatternJourney(patternType) {
+    if (!session) {
+      return;
+    }
+
+    const updatedSession = await seedNonLinearPatternJourney(session, patternType);
     setSession(updatedSession);
     return updatedSession;
   }
@@ -181,6 +196,7 @@ export default function App() {
           onOpenPersonas={() => setScreen("personas")}
           onSignOut={handleSignOut}
           onSeedDemoJourney={handleSeedDemoJourney}
+          onSeedPatternJourney={handleSeedPatternJourney}
         />
       ) : null}
 

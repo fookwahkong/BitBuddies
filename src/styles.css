@@ -1755,6 +1755,107 @@ input {
   line-height: 1.6;
 }
 
+.todo-adaptive-card {
+  margin-top: 8px;
+  border-radius: 24px;
+  padding: 18px 20px;
+  background: linear-gradient(160deg, rgba(14, 73, 124, 0.12), rgba(255, 255, 255, 0.9));
+  border: 1px solid rgba(13, 90, 156, 0.2);
+}
+
+.todo-adaptive-card.is-inactive {
+  border-color: rgba(240, 93, 94, 0.34);
+  background: linear-gradient(160deg, rgba(240, 93, 94, 0.1), rgba(255, 255, 255, 0.94));
+}
+
+.todo-adaptive-card.is-bursty {
+  border-color: rgba(255, 176, 64, 0.38);
+  background: linear-gradient(160deg, rgba(255, 176, 64, 0.1), rgba(255, 255, 255, 0.94));
+}
+
+.todo-adaptive-card.is-fragmented {
+  border-color: rgba(125, 121, 215, 0.35);
+  background: linear-gradient(160deg, rgba(125, 121, 215, 0.1), rgba(255, 255, 255, 0.94));
+}
+
+.todo-adaptive-card.is-deadlineDriven {
+  border-color: rgba(27, 143, 80, 0.32);
+  background: linear-gradient(160deg, rgba(27, 143, 80, 0.1), rgba(255, 255, 255, 0.94));
+}
+
+.todo-adaptive-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.todo-adaptive-cta {
+  color: #1e3352;
+  font-size: 0.94rem;
+}
+
+.todo-adaptive-reason,
+.todo-adaptive-message {
+  margin: 8px 0 0;
+  color: #31415f;
+  line-height: 1.6;
+}
+
+.todo-adaptive-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: #3a4b6d;
+  line-height: 1.65;
+}
+
+.todo-adaptive-list li + li {
+  margin-top: 4px;
+}
+
+.todo-adaptive-task-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.todo-adaptive-task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(13, 90, 156, 0.13);
+}
+
+.todo-adaptive-task span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: #0d5a9c;
+}
+
+.todo-adaptive-task strong {
+  display: block;
+  color: #1f3556;
+  font-size: 0.93rem;
+}
+
+.todo-adaptive-task p {
+  margin: 4px 0 0;
+  color: #5e6b88;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
 .todo-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -2318,71 +2419,9 @@ input {
   height: 136px;
 }
 
-.todo-mini-radar {
-  width: 100%;
-  height: 100%;
-}
-
-.todo-mini-radar-ring {
-  fill: none;
-  stroke: rgba(23, 58, 99, 0.12);
-  stroke-width: 0.8;
-}
-
-.todo-mini-radar-axis {
-  stroke: rgba(23, 58, 99, 0.12);
-  stroke-width: 0.8;
-}
-
-.todo-mini-radar-shape {
-  fill: rgba(13, 90, 156, 0.12);
-  stroke: rgba(13, 90, 156, 0.72);
-  stroke-width: 1.5;
-}
-
-.todo-mini-radar-dot {
-  fill: #0d5a9c;
-}
-
-.todo-mini-radar-label {
-  font-size: 8px;
-  fill: rgba(23, 58, 99, 0.58);
-  font-family: inherit;
-}
-
-.todo-world-metric-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 0.4rem;
-}
-
 .todo-commit-button {
   width: 100%;
   margin-top: 0.15rem;
-}
-
-.todo-world-metric-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 54px;
-  border-radius: 14px;
-  background: rgba(13, 90, 156, 0.08);
-}
-
-.todo-world-metric-label {
-  display: block;
-  text-align: center;
-  color: rgba(23, 58, 99, 0.62);
-  font-size: 0.52rem;
-  margin-bottom: 0.15rem;
-}
-
-.todo-world-metric-value {
-  font-size: 0.82rem;
-  color: #0d5a9c;
-  font-weight: 800;
 }
 
 .todo-world-hint {
@@ -2697,10 +2736,18 @@ input {
   border-radius: 22px;
   border: 1px solid rgba(147, 167, 196, 0.12);
   background: rgba(255, 255, 255, 0.78);
+  transition: opacity 0.28s ease, transform 0.28s ease, filter 0.28s ease;
 }
 
 .study-plan-item input {
   margin-top: 3px;
+}
+
+.study-plan-item.is-dismissing {
+  opacity: 0;
+  transform: translateX(20px);
+  filter: blur(1.2px);
+  pointer-events: none;
 }
 
 .study-plan-item.is-complete {

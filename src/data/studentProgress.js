@@ -11,6 +11,7 @@ import {
 
 const RADAR_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const WEAK_TOPIC_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const BEHAVIOR_ELIGIBILITY_EVENT_COUNT = 25;
 const BEHAVIOR_PROMOTION_CONFIDENCE = 0.6;
 const BEHAVIOR_PROMOTION_MARGIN = 0.15;
@@ -205,6 +206,147 @@ function createSeedActionPlan(referenceTime = Date.now()) {
       timestamp,
     };
   });
+}
+
+function createPatternActionPlan(patternType, referenceTime = Date.now()) {
+  const baseTopicPool = [
+    "differentiation_chain_rule",
+    "algebra_factorisation",
+    "probability_tree",
+    "trigonometry_identities",
+    "kinematics_velocity",
+  ];
+
+  if (patternType === "inactive") {
+    const dayOffsets = [13, 12, 10, 9, 8, 7, 6];
+    return dayOffsets.map((dayOffset, index) => ({
+      eventType: index % 4 === 0 ? "review" : "attempt",
+      topicId: baseTopicPool[index % baseTopicPool.length],
+      difficulty: index % 3 === 0 ? 3 : 2,
+      isCorrect: index % 3 !== 1,
+      timeTakenSec: 220 - ((index % 3) * 20),
+      questionId: `inactive-${index + 1}`,
+      subjectId: baseTopicPool[index % baseTopicPool.length],
+      detectedTopic: "Inactive Seed",
+      questionType: "Seeded Pattern",
+      sourceFile: { name: "seed-inactive.json", type: "application/json", size: 900 },
+      timestamp: referenceTime - (dayOffset * DAY_IN_MS),
+    }));
+  }
+
+  if (patternType === "bursty") {
+    const actions = [];
+    const heavyDayOffsets = [0, 1];
+    let counter = 1;
+
+    heavyDayOffsets.forEach((dayOffset) => {
+      for (let index = 0; index < 8; index += 1) {
+        actions.push({
+          eventType: "attempt",
+          topicId: baseTopicPool[index % 2],
+          difficulty: 3,
+          isCorrect: index % 3 !== 0,
+          timeTakenSec: 820 + (index * 15),
+          questionId: `bursty-heavy-${counter}`,
+          subjectId: baseTopicPool[index % 2],
+          detectedTopic: "Bursty Heavy Block",
+          questionType: "Seeded Pattern",
+          sourceFile: { name: "seed-bursty.json", type: "application/json", size: 1100 },
+          timestamp: referenceTime - (dayOffset * DAY_IN_MS) + (index * 18 * 60 * 1000),
+        });
+        counter += 1;
+      }
+    });
+
+    [5, 9, 12].forEach((dayOffset, index) => {
+      actions.push({
+        eventType: "attempt",
+        topicId: baseTopicPool[(index + 2) % baseTopicPool.length],
+        difficulty: 2,
+        isCorrect: true,
+        timeTakenSec: 140,
+        questionId: `bursty-light-${index + 1}`,
+        subjectId: baseTopicPool[(index + 2) % baseTopicPool.length],
+        detectedTopic: "Bursty Light Block",
+        questionType: "Seeded Pattern",
+        sourceFile: { name: "seed-bursty.json", type: "application/json", size: 1100 },
+        timestamp: referenceTime - (dayOffset * DAY_IN_MS),
+      });
+    });
+
+    return actions.sort((left, right) => left.timestamp - right.timestamp);
+  }
+
+  if (patternType === "fragmented") {
+    const actions = [];
+    let counter = 1;
+    for (let dayOffset = 0; dayOffset <= 6; dayOffset += 1) {
+      for (let block = 0; block < 3; block += 1) {
+        const topicId = baseTopicPool[(counter - 1) % baseTopicPool.length];
+        actions.push({
+          eventType: "attempt",
+          topicId,
+          difficulty: 2,
+          isCorrect: counter % 4 !== 0,
+          timeTakenSec: 110 + ((counter % 3) * 18),
+          questionId: `fragmented-${counter}`,
+          subjectId: topicId,
+          detectedTopic: "Fragmented Seed",
+          questionType: "Seeded Pattern",
+          sourceFile: { name: "seed-fragmented.json", type: "application/json", size: 1024 },
+          timestamp: referenceTime - (dayOffset * DAY_IN_MS) + (block * 150 * 60 * 1000),
+        });
+        counter += 1;
+      }
+    }
+    return actions.sort((left, right) => left.timestamp - right.timestamp);
+  }
+
+  if (patternType === "deadlineDriven") {
+    const actions = [];
+    let counter = 1;
+
+    [13, 12, 11, 10, 9, 8].forEach((dayOffset) => {
+      actions.push({
+        eventType: "attempt",
+        topicId: baseTopicPool[0],
+        difficulty: 2,
+        isCorrect: true,
+        timeTakenSec: 170,
+        questionId: `deadline-early-${counter}`,
+        subjectId: baseTopicPool[0],
+        detectedTopic: "Deadline Early",
+        questionType: "Seeded Pattern",
+        sourceFile: { name: "seed-deadline.json", type: "application/json", size: 1080 },
+        timestamp: referenceTime - (dayOffset * DAY_IN_MS),
+      });
+      counter += 1;
+    });
+
+    for (let dayOffset = 2; dayOffset >= 0; dayOffset -= 1) {
+      for (let index = 0; index < 7; index += 1) {
+        const topicId = baseTopicPool[index % 2];
+        actions.push({
+          eventType: "attempt",
+          topicId,
+          difficulty: 3,
+          isCorrect: index % 5 !== 0,
+          timeTakenSec: 420 + (index * 24),
+          questionId: `deadline-late-${counter}`,
+          subjectId: topicId,
+          detectedTopic: "Deadline Late Push",
+          questionType: "Seeded Pattern",
+          sourceFile: { name: "seed-deadline.json", type: "application/json", size: 1080 },
+          timestamp: referenceTime - (dayOffset * DAY_IN_MS) + (index * 28 * 60 * 1000),
+        });
+        counter += 1;
+      }
+    }
+
+    return actions.sort((left, right) => left.timestamp - right.timestamp);
+  }
+
+  return createSeedActionPlan(referenceTime);
 }
 
 function getTopBehaviorOutcome(behaviorLabelScores) {
@@ -450,6 +592,58 @@ export async function saveLatestPracticeAnalysis(student, analysis) {
 export async function seedDemoLearningJourney(student) {
   let nextSession = student;
   const seedActions = createSeedActionPlan();
+
+  for (const action of seedActions) {
+    nextSession = await recordLearningAction(nextSession, action);
+  }
+
+  return nextSession;
+}
+
+export async function seedNonLinearPatternJourney(student, patternType) {
+  const supportedTypes = new Set(["inactive", "bursty", "fragmented", "deadlineDriven"]);
+  const normalizedType = supportedTypes.has(patternType) ? patternType : "bursty";
+  let nextSession = student;
+  const docId = await resolveStudentDocId(student);
+  const referenceTime = Date.now();
+  const seedActions = createPatternActionPlan(normalizedType, referenceTime);
+
+  if (normalizedType === "deadlineDriven") {
+    const currentAcademicProfile = nextSession.academicProfile || { subjects: [] };
+    const subjects = Array.isArray(currentAcademicProfile.subjects) ? currentAcademicProfile.subjects : [];
+    const fallbackSubjects = subjects.length
+      ? subjects
+      : [{
+        id: "differentiation_chain_rule",
+        label: "Mathematics",
+        importanceScore: 3,
+        weaknessScore: 3,
+        targetGrade: "",
+        normalizedWeight: 1,
+      }];
+    const nextSubjects = fallbackSubjects.map((subject, index) => ({
+      ...subject,
+      examDate: index < 2
+        ? new Date(referenceTime + (5 * DAY_IN_MS)).toISOString().slice(0, 10)
+        : (subject.examDate || ""),
+    }));
+    const nextAcademicProfile = {
+      ...currentAcademicProfile,
+      subjects: nextSubjects,
+      updatedAt: referenceTime,
+    };
+
+    await updateDoc(doc(db, "students", docId), {
+      academicProfile: nextAcademicProfile,
+      updatedAt: new Date(referenceTime).toISOString(),
+    });
+
+    nextSession = buildSessionFromStudentRecord({
+      ...nextSession,
+      docId,
+      academicProfile: nextAcademicProfile,
+    });
+  }
 
   for (const action of seedActions) {
     nextSession = await recordLearningAction(nextSession, action);

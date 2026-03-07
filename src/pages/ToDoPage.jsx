@@ -4,22 +4,6 @@ import TopNav from "../components/TopNav";
 
 import { db } from "../firebaseConfig.js";
 
-const metrics = [
-  { key: "mastery", label: "Mastery" },
-  { key: "clarity", label: "Clarity" },
-  { key: "confidence", label: "Confidence" },
-  { key: "speed", label: "Speed" },
-  { key: "readiness", label: "Readiness" },
-];
-
-const currentState = {
-  mastery: 54,
-  clarity: 48,
-  confidence: 62,
-  speed: 44,
-  readiness: 51,
-};
-
 const DEFAULT_NODE_MAP = {
   start: {
     id: "start",
@@ -152,6 +136,9 @@ const STARTER_MESSAGES = [
   },
 ];
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const STUDY_SESSION_GAP_MS = 90 * 60 * 1000;
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -191,15 +178,6 @@ function getPathIds(nodeMap, targetId) {
   }
 
   return path;
-}
-
-function buildProjectedState(node) {
-  const impact = node?.impact ?? {};
-
-  return metrics.reduce((acc, metric) => {
-    acc[metric.key] = clamp(currentState[metric.key] + (impact[metric.key] ?? 0), 0, 100);
-    return acc;
-  }, {});
 }
 
 function getNodeDepth(nodeMap, node) {
@@ -272,6 +250,277 @@ function collectNodeBranchIds(nodeMap, rootId) {
   }
 
   return [...collected];
+}
+
+function toDayKey(timestamp) {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function getMinutesFromEvent(event) {
+  const fromTimeSpent = Number(event?.timeSpentSec);
+  const fromTimeTaken = Number(event?.timeTakenSec);
+  const seconds = Number.isFinite(fromTimeSpent) && fromTimeSpent > 0
+    ? fromTimeSpent
+    : (Number.isFinite(fromTimeTaken) && fromTimeTaken > 0 ? fromTimeTaken : 180);
+  return seconds / 60;
+}
+
+function getExamDaysLeft(academicProfile, referenceTime = Date.now()) {
+  const subjects = academicProfile?.subjects || [];
+  const candidateDays = subjects
+    .map((subject) => subject?.examDate)
+    .filter(Boolean)
+    .map((dateValue) => new Date(dateValue))
+    .filter((dateValue) => Number.isFinite(dateValue.getTime()))
+    .map((dateValue) => Math.ceil((dateValue.getTime() - referenceTime) / DAY_IN_MS))
+    .filter((days) => days >= 0);
+
+  if (!candidateDays.length) {
+    return null;
+  }
+
+  return Math.min(...candidateDays);
+}
+
+function buildStudyRhythmInsights(user, referenceTime = Date.now()) {
+  const events = Array.isArray(user?.learningEvents)
+    ? user.learningEvents.filter((event) => Number.isFinite(event?.timestamp))
+    : [];
+  const learningFeatures = user?.learningRadar?.features || {};
+  const todos = Array.isArray(user?.studyPlanTodos) ? user.studyPlanTodos : [];
+  const uncompletedTodos = todos.filter((item) => !item.completed);
+  const currentWindowDays = 14;
+  const windowStart = referenceTime - (currentWindowDays - 1) * DAY_IN_MS;
+  const recentEvents = events
+    .filter((event) => event.timestamp >= windowStart && event.timestamp <= referenceTime)
+    .sort((left, right) => left.timestamp - right.timestamp);
+  const dayIndex = Array.from({ length: currentWindowDays }, (_, index) => {
+    const timestamp = windowStart + index * DAY_IN_MS;
+    return toDayKey(timestamp);
+  });
+  const dailyMinutesMap = dayIndex.reduce((result, dayKey) => {
+    result[dayKey] = 0;
+    return result;
+  }, {});
+
+  recentEvents.forEach((event) => {
+    const dayKey = toDayKey(event.timestamp);
+    if (dayKey in dailyMinutesMap) {
+      dailyMinutesMap[dayKey] += getMinutesFromEvent(event);
+    }
+  });
+
+  const dailyMinutes = dayIndex.map((dayKey) => dailyMinutesMap[dayKey] || 0);
+  const activeDays = dailyMinutes.filter((minutes) => minutes > 0).length;
+  const zeroDaysPct = currentWindowDays
+    ? (currentWindowDays - activeDays) / currentWindowDays
+    : 1;
+  const avgDailyMinutes = currentWindowDays
+    ? dailyMinutes.reduce((sum, value) => sum + value, 0) / currentWindowDays
+    : 0;
+  const maxDailyMinutes = Math.max(0, ...dailyMinutes);
+  const variance = currentWindowDays
+    ? dailyMinutes.reduce((sum, value) => sum + ((value - avgDailyMinutes) ** 2), 0) / currentWindowDays
+    : 0;
+  const stdDailyMinutes = Math.sqrt(variance);
+  const topTwoSum = [...dailyMinutes].sort((left, right) => right - left).slice(0, 2).reduce((sum, value) => sum + value, 0);
+  const totalMinutes = dailyMinutes.reduce((sum, value) => sum + value, 0);
+  const topTwoShare = totalMinutes ? topTwoSum / totalMinutes : 0;
+  const burstDays = dailyMinutes.filter((minutes) => minutes >= 90).length;
+  const nowDayKey = toDayKey(referenceTime);
+  const mostRecentEvent = events.slice().sort((left, right) => right.timestamp - left.timestamp)[0] || null;
+  const daysSinceLastStudy = mostRecentEvent
+    ? Math.max(0, Math.floor((new Date(nowDayKey).getTime() - new Date(toDayKey(mostRecentEvent.timestamp)).getTime()) / DAY_IN_MS))
+    : 999;
+  const activeDayTimes = [...new Set(events.map((event) => new Date(toDayKey(event.timestamp)).getTime()))].sort((left, right) => left - right);
+  let longestInactiveGap = currentWindowDays;
+  let inactiveGapsAbove3Days = 0;
+
+  if (activeDayTimes.length >= 2) {
+    longestInactiveGap = 0;
+    for (let index = 1; index < activeDayTimes.length; index += 1) {
+      const gapDays = Math.max(0, Math.round((activeDayTimes[index] - activeDayTimes[index - 1]) / DAY_IN_MS) - 1);
+      longestInactiveGap = Math.max(longestInactiveGap, gapDays);
+      if (gapDays > 3) {
+        inactiveGapsAbove3Days += 1;
+      }
+    }
+  } else if (activeDayTimes.length === 1) {
+    longestInactiveGap = Math.max(0, daysSinceLastStudy);
+    inactiveGapsAbove3Days = longestInactiveGap > 3 ? 1 : 0;
+  }
+
+  const sessions = [];
+  recentEvents.forEach((event) => {
+    const previous = sessions[sessions.length - 1];
+    if (!previous || event.timestamp - previous.lastTimestamp > STUDY_SESSION_GAP_MS) {
+      sessions.push({
+        firstTimestamp: event.timestamp,
+        lastTimestamp: event.timestamp,
+      });
+      return;
+    }
+    previous.lastTimestamp = event.timestamp;
+  });
+
+  const sessionSpacingHours = sessions.slice(1).map((session, index) => (
+    (session.firstTimestamp - sessions[index].lastTimestamp) / (60 * 60 * 1000)
+  ));
+  const averageSessionSpacingHours = sessionSpacingHours.length
+    ? sessionSpacingHours.reduce((sum, value) => sum + value, 0) / sessionSpacingHours.length
+    : null;
+  const nearestExamDays = getExamDaysLeft(user?.academicProfile, referenceTime);
+  const recent3DayMinutes = dailyMinutes.slice(-3).reduce((sum, value) => sum + value, 0);
+  const previous7DayMinutes = dailyMinutes.slice(0, -3).slice(-7).reduce((sum, value) => sum + value, 0);
+  const accelerationRatio = previous7DayMinutes > 0
+    ? (recent3DayMinutes / 3) / (previous7DayMinutes / 7)
+    : (recent3DayMinutes > 0 ? 2 : 1);
+  const weakTopicSet = Array.isArray(user?.weakTopicSet) ? user.weakTopicSet : [];
+  const weakTopicTouchedAfterGap = weakTopicSet.length
+    ? recentEvents.some((event) => weakTopicSet.includes(event.topicId))
+    : true;
+
+  const signals = {
+    daysSinceLastStudy,
+    longestInactiveGap,
+    inactiveGapsAbove3Days,
+    zeroDaysPct,
+    stdDailyMinutes,
+    maxToAvgDailyRatio: avgDailyMinutes > 0 ? maxDailyMinutes / avgDailyMinutes : 0,
+    topTwoShare,
+    burstDays,
+    activeDays,
+    averageSessionSpacingHours,
+    nearestExamDays,
+    accelerationRatio,
+    weakTopicTouchedAfterGap,
+    topicSwitchRate: Number(learningFeatures.topicSwitchRate) || 0,
+    medianSessionDuration: Number(learningFeatures.medianSessionDuration) || 0,
+    recentBurstRatio: Number(learningFeatures.recentBurstRatio) || 0,
+  };
+
+  const patternScores = {
+    inactive: 0,
+    bursty: 0,
+    fragmented: 0,
+    deadlineDriven: 0,
+  };
+
+  if (signals.daysSinceLastStudy >= 5) patternScores.inactive += 0.55;
+  if (signals.zeroDaysPct >= 0.6) patternScores.inactive += 0.25;
+  if (signals.longestInactiveGap >= 5) patternScores.inactive += 0.2;
+
+  if (signals.topTwoShare >= 0.65) patternScores.bursty += 0.4;
+  if (signals.maxToAvgDailyRatio >= 2.6) patternScores.bursty += 0.3;
+  if (signals.burstDays >= 1) patternScores.bursty += 0.15;
+  if (signals.stdDailyMinutes >= 30) patternScores.bursty += 0.15;
+
+  if (signals.medianSessionDuration <= 16) patternScores.fragmented += 0.35;
+  if (signals.topicSwitchRate >= 0.55) patternScores.fragmented += 0.35;
+  if (signals.averageSessionSpacingHours !== null && signals.averageSessionSpacingHours <= 10) patternScores.fragmented += 0.2;
+  if (signals.activeDays >= 6 && signals.maxToAvgDailyRatio <= 1.8) patternScores.fragmented += 0.1;
+
+  if (signals.nearestExamDays !== null && signals.nearestExamDays <= 10) patternScores.deadlineDriven += 0.45;
+  if (signals.accelerationRatio >= 1.7) patternScores.deadlineDriven += 0.3;
+  if (signals.recentBurstRatio >= 0.45) patternScores.deadlineDriven += 0.15;
+  if (!signals.weakTopicTouchedAfterGap) patternScores.deadlineDriven += 0.1;
+
+  const rankedPatterns = Object.entries(patternScores)
+    .sort((left, right) => right[1] - left[1]);
+  const [topPatternKey, topPatternScore] = rankedPatterns[0];
+
+  const defaultIntervention = {
+    label: "Steady rhythm",
+    reason: "Your recent pattern looks stable enough to keep regular progress.",
+    message: "Keep your next sessions spaced, and finish one committed task fully before switching.",
+    cta: "Continue with your top pending task.",
+    recommendedTodos: uncompletedTodos.slice(0, 3),
+  };
+
+  if (!events.length || topPatternScore < 0.45) {
+    return {
+      patternKey: "steady",
+      score: topPatternScore || 0,
+      signals,
+      intervention: defaultIntervention,
+    };
+  }
+
+  if (topPatternKey === "inactive") {
+    return {
+      patternKey: "inactive",
+      score: topPatternScore,
+      signals,
+      intervention: {
+        label: "Inactive pattern",
+        reason: `You had a ${signals.daysSinceLastStudy}-day gap since the last study session.`,
+        message: "Restart small: do one short recap first, then return to the full plan.",
+        cta: "Start with one 15-minute recap task.",
+        recommendedTodos: uncompletedTodos.slice(0, 1),
+        quickActions: [
+          "15-minute recap on your weakest topic",
+          "One low-pressure checkpoint question",
+        ],
+      },
+    };
+  }
+
+  if (topPatternKey === "bursty") {
+    return {
+      patternKey: "bursty",
+      score: topPatternScore,
+      signals,
+      intervention: {
+        label: "Bursty pattern",
+        reason: "Most effort is concentrated into a few heavy days, which can hurt retention.",
+        message: "You’re making progress, but avoid cramming by spreading the next tasks across separate days.",
+        cta: "Distribute your next 3 tasks instead of doing them in one block.",
+        recommendedTodos: uncompletedTodos.slice(0, 3),
+        quickActions: [
+          "Do task 1 today, task 2 tomorrow, task 3 the day after",
+          "Mix one weak-topic task into the next session",
+        ],
+      },
+    };
+  }
+
+  if (topPatternKey === "fragmented") {
+    return {
+      patternKey: "fragmented",
+      score: topPatternScore,
+      signals,
+      intervention: {
+        label: "Fragmented pattern",
+        reason: "Sessions are short with frequent topic switching.",
+        message: "Increase depth by finishing one weak topic before switching.",
+        cta: "Run one focused 35-minute block on a single topic.",
+        recommendedTodos: uncompletedTodos.slice(0, 2),
+        quickActions: [
+          "Set a 35-minute focus block",
+          "Delay topic switching until one task is marked complete",
+        ],
+      },
+    };
+  }
+
+  return {
+    patternKey: "deadlineDriven",
+    score: topPatternScore,
+    signals,
+    intervention: {
+      label: "Deadline-driven pattern",
+      reason: signals.nearestExamDays !== null
+        ? `${signals.nearestExamDays} day(s) left to the nearest exam, with late intensity spikes.`
+        : "Effort is ramping up late and unevenly.",
+      message: "Shift from perfection to triage: prioritize high-impact weak topics first.",
+      cta: "Tackle uncovered weak areas before polishing strong topics.",
+      recommendedTodos: uncompletedTodos.slice(0, 3),
+      quickActions: [
+        "Prioritize weak and high-weight topics first",
+        "Use short timed drills instead of long theory blocks",
+      ],
+    },
+  };
 }
 
 function PossibleWorldsMap({
@@ -363,10 +612,6 @@ function PossibleWorldsMap({
     return fallbackId ? normalizeNode(nodeMap, nodeMap[fallbackId]) : null;
   }, [hasGeneratedNodes, nodeMap, selectedId]);
 
-  const projectedState = useMemo(
-    () => buildProjectedState(selectedNode ?? DEFAULT_NODE_MAP.start),
-    [selectedNode]
-  );
   const activePath = useMemo(
     () => (selectedNode ? getPathIds(nodeMap, selectedNode.id) : new Set()),
     [nodeMap, selectedNode]
@@ -626,17 +871,6 @@ function PossibleWorldsMap({
                     </ul>
                   </div>
 
-                  <div className="todo-world-metric-grid">
-                    {metrics.map((metric) => (
-                      <div key={metric.key} className="todo-world-metric-card">
-                        <span className="todo-world-metric-label">{metric.label}</span>
-                        <strong className="todo-world-metric-value">
-                          {projectedState[metric.key]}
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
-
                   <button
                     type="button"
                     className="primary-button todo-commit-button"
@@ -724,12 +958,42 @@ function StudentPrompt({
     }
   }, [hoveredProposalId, pendingProposals, pendingSelectedProposalId]);
 
-  async function sendText(rawText) {
+  function isIntermediateProposalMessage(message) {
+    if (!message || typeof message.content !== "string") {
+      return false;
+    }
+
+    const content = message.content.trim();
+
+    if (message.role === "user" && /^\d+$/.test(content)) {
+      return true;
+    }
+
+    if (
+      message.role === "assistant"
+      && content.includes("Should I add this plan to the tree path now?")
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => !isIntermediateProposalMessage(message)),
+    [messages]
+  );
+
+  async function sendText(rawText, options = {}) {
+    const {
+      hideUserMessage = false,
+      hideAssistantMessage = false,
+    } = options;
     const text = rawText.trim();
     if (!text || loading) return;
 
     const userMessage = { role: "user", content: text };
-    const nextMessages = [...messages, userMessage];
+    const nextMessages = hideUserMessage ? [...messages] : [...messages, userMessage];
 
     setMessages(nextMessages);
     setInput("");
@@ -761,13 +1025,17 @@ function StudentPrompt({
         setPendingSelectedProposalId(data.newTreeState.pendingSelectedProposalId ?? null);
       }
 
-      setMessages([
-        ...nextMessages,
-        {
-          role: "assistant",
-          content: data.replyText,
-        },
-      ]);
+      if (hideAssistantMessage) {
+        setMessages(nextMessages);
+      } else {
+        setMessages([
+          ...nextMessages,
+          {
+            role: "assistant",
+            content: data.replyText,
+          },
+        ]);
+      }
     } catch (error) {
       setMessages([
         ...nextMessages,
@@ -796,8 +1064,8 @@ function StudentPrompt({
   return (
     <div className="todo-chat-shell">
       <div className="todo-chat-header">
-        <span className="todo-eyebrow">Student Prompt</span>
-        <h2 className="todo-chat-title">Ask your study buddy</h2>
+        <span className="todo-eyebrow">Guided User Intelligence for Dynamic Education</span>
+        <h2 className="todo-chat-title">GUIDE</h2>
         <p className="todo-chat-subtitle">
           Ask a question, describe what is confusing, or say how your last
           session went.
@@ -805,7 +1073,7 @@ function StudentPrompt({
       </div>
 
       <div className="todo-chat-feed">
-        {messages.map((message, index) => (
+        {visibleMessages.map((message, index) => (
           <div
             key={index}
             className={`todo-chat-bubble${message.role === "user" ? " is-user" : " is-bot"}`}
@@ -839,7 +1107,10 @@ function StudentPrompt({
                       key={proposal.id}
                       type="button"
                       className={`todo-chat-proposal-card${isSelected ? " is-selected" : ""}`}
-                      onClick={() => sendText(String(index + 1))}
+                      onClick={() => sendText(String(index + 1), {
+                        hideUserMessage: true,
+                        hideAssistantMessage: true,
+                      })}
                       onMouseEnter={() => setHoveredProposalId(proposal.id)}
                       onFocus={() => setHoveredProposalId(proposal.id)}
                       disabled={loading}
@@ -939,6 +1210,17 @@ export default function ToDoPage({
   const [committedNodeIdState, setCommittedNodeIdState] = useState(null);
   const [messagesState, setMessagesState] = useState(STARTER_MESSAGES);
   const [treeReady, setTreeReady] = useState(false);
+  const adaptiveInsights = useMemo(() => buildStudyRhythmInsights(user), [user]);
+  const uncompletedTodos = useMemo(
+    () => (Array.isArray(user?.studyPlanTodos) ? user.studyPlanTodos.filter((item) => !item.completed) : []),
+    [user?.studyPlanTodos],
+  );
+  const orderedTodos = useMemo(() => {
+    const recommendedIds = new Set((adaptiveInsights.intervention.recommendedTodos || []).map((item) => item.id));
+    const prioritized = uncompletedTodos.filter((item) => recommendedIds.has(item.id));
+    const remaining = uncompletedTodos.filter((item) => !recommendedIds.has(item.id));
+    return [...prioritized, ...remaining];
+  }, [adaptiveInsights.intervention.recommendedTodos, uncompletedTodos]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -1114,6 +1396,41 @@ export default function ToDoPage({
       </section>
 
       <section className="student-card">
+        <div className={`todo-adaptive-card is-${adaptiveInsights.patternKey}`}>
+          <div className="todo-adaptive-header">
+            <span className="todo-badge">{adaptiveInsights.intervention.label}</span>
+            <strong className="todo-adaptive-cta">{adaptiveInsights.intervention.cta}</strong>
+          </div>
+          <p className="todo-adaptive-reason">{adaptiveInsights.intervention.reason}</p>
+          <p className="todo-adaptive-message">{adaptiveInsights.intervention.message}</p>
+
+          {adaptiveInsights.intervention.quickActions?.length ? (
+            <ul className="todo-adaptive-list">
+              {adaptiveInsights.intervention.quickActions.map((action) => (
+                <li key={action}>{action}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          {orderedTodos.length ? (
+            <div className="todo-adaptive-task-list">
+              {orderedTodos.slice(0, 3).map((item, index) => (
+                <div key={item.id} className="todo-adaptive-task">
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.details}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="todo-feedback">
+              No committed PATH task yet. Commit one node below and it will appear here as the next adaptive action.
+            </div>
+          )}
+        </div>
+
         <PossibleWorldsMap
           user={user}
           nodeMap={nodeMapState}

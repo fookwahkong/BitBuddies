@@ -104,10 +104,6 @@ export default function LandingPage({ onStart, onLoginSuccess }) {
               <h1 className="landing-login-title">
                 <span>Welcome back.</span>
               </h1>
-              <p className="landing-login-text">
-                Pick up from your latest persona mix, recent practice analysis, and saved study pathways without
-                resetting the dashboard.
-              </p>
 
               <div className="landing-login-note">
                 <strong>What waits inside</strong>

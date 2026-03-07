@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import PersonaVisual from "../components/PersonaVisual";
 import RadarChart from "../components/RadarChart";
 import TopNav from "../components/TopNav";
@@ -68,6 +68,9 @@ export default function HomePage({
   user,
 }) {
   const [showPersonaExplanation, setShowPersonaExplanation] = useState(false);
+  const [dismissingTodoIds, setDismissingTodoIds] = useState({});
+  const [hiddenTodoIds, setHiddenTodoIds] = useState({});
+  const dismissTimersRef = useRef({});
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -95,6 +98,17 @@ export default function HomePage({
     ? new Date(radar.meta.lastComputedAt).toLocaleString()
     : "Not computed yet";
   const studyPlanTodos = Array.isArray(user.studyPlanTodos) ? user.studyPlanTodos : [];
+  const visibleStudyPlanTodos = studyPlanTodos.filter((item) => {
+    if (dismissingTodoIds[item.id]) {
+      return true;
+    }
+
+    if (hiddenTodoIds[item.id]) {
+      return false;
+    }
+
+    return !item.completed;
+  });
   const scoreSource = user.persona.labelSource === "behavior_rule" ? "behavior signal" : "onboarding quiz";
   const secondPersona = rankedPersonas[1] || null;
   const liveScores = Object.entries(user.persona.liveMatchScores || {})
@@ -104,6 +118,64 @@ export default function HomePage({
       value: Number(value) || 0,
     }))
     .sort((left, right) => right.value - left.value);
+
+  useEffect(() => {
+    return () => {
+      Object.values(dismissTimersRef.current).forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+      dismissTimersRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    const activeTodoIds = new Set(studyPlanTodos.map((item) => item.id));
+    const visibleHiddenIds = Object.entries(hiddenTodoIds).reduce((result, [id, value]) => {
+      if (!value || !activeTodoIds.has(id)) {
+        return result;
+      }
+
+      const matchedTodo = studyPlanTodos.find((todo) => todo.id === id);
+      if (matchedTodo?.completed) {
+        result[id] = true;
+      }
+
+      return result;
+    }, {});
+
+    const nextKey = Object.keys(visibleHiddenIds).sort().join("|");
+    const currentKey = Object.keys(hiddenTodoIds).sort().join("|");
+    const hasChanged = nextKey !== currentKey;
+    if (hasChanged) {
+      setHiddenTodoIds(visibleHiddenIds);
+    }
+  }, [hiddenTodoIds, studyPlanTodos]);
+
+  function handleCompleteTodo(todoId) {
+    if (dismissingTodoIds[todoId] || hiddenTodoIds[todoId]) {
+      return;
+    }
+
+    setDismissingTodoIds((current) => ({
+      ...current,
+      [todoId]: true,
+    }));
+
+    dismissTimersRef.current[todoId] = setTimeout(() => {
+      setDismissingTodoIds((current) => {
+        const next = { ...current };
+        delete next[todoId];
+        return next;
+      });
+      setHiddenTodoIds((current) => ({
+        ...current,
+        [todoId]: true,
+      }));
+      delete dismissTimersRef.current[todoId];
+    }, 300);
+
+    onToggleStudyPlan(todoId);
+  }
 
   return (
     <main className="screen-shell">
@@ -228,21 +300,26 @@ export default function HomePage({
           </button>
         </div>
 
-        {studyPlanTodos.length ? (
+        {visibleStudyPlanTodos.length ? (
           <div className="study-plan-list">
-            {studyPlanTodos.map((item) => (
-              <label key={item.id} className={`study-plan-item${item.completed ? " is-complete" : ""}`}>
+            {visibleStudyPlanTodos.map((item) => {
+              const isDismissing = Boolean(dismissingTodoIds[item.id]);
+
+              return (
+              <label key={item.id} className={`study-plan-item${isDismissing ? " is-dismissing" : ""}`}>
                 <input
                   type="checkbox"
-                  checked={Boolean(item.completed)}
-                  onChange={() => onToggleStudyPlan(item.id)}
+                  checked={isDismissing || Boolean(item.completed)}
+                  onChange={() => handleCompleteTodo(item.id)}
+                  disabled={isDismissing}
                 />
                 <div className="study-plan-copy">
                   <strong>{item.title}</strong>
                   <p>{item.details}</p>
                 </div>
               </label>
-            ))}
+            );
+            })}
           </div>
         ) : (
           <div className="explain-card" style={{ marginTop: "20px" }}>
